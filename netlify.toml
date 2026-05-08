@@ -1,0 +1,15 @@
+# Netlify build config — Next.js 16 App Router on Netlify's official runtime.
+#
+# pnpm + Node 20 (matches the local toolchain). The official @netlify/plugin-nextjs
+# is auto-installed when Netlify detects Next.js, so we don't list it here.
+
+[build]
+  command = "pnpm build"
+  publish = ".next"
+
+[build.environment]
+  # Match the local toolchain. Netlify's default Node is 20.x; pinning is belt-and-braces.
+  NODE_VERSION = "20"
+  PNPM_VERSION = "10"
+  # Skip the Next.js telemetry prompt during build.
+  NEXT_TELEMETRY_DISABLED = "1"
