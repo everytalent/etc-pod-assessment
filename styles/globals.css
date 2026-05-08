@@ -1,0 +1,123 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * ETC brand palette — single source of hex values for the whole app.
+ * Components must reference these via Tailwind utilities (bg-etc-cream,
+ * text-etc-black, ...) or the semantic shadcn tokens (bg-background, ...)
+ * mapped below. No inline hex anywhere else.
+ */
+:root {
+  /* ETC brand */
+  --etc-marigold: #f1b240;
+  --etc-cream: #fffadb;
+  --etc-black: #020301;
+  --etc-gray: #f3f5f9;
+  --etc-white: #ffffff;
+
+  /* Semantic tokens consumed by shadcn primitives. */
+  --background: var(--etc-cream);
+  --foreground: var(--etc-black);
+
+  --card: var(--etc-white);
+  --card-foreground: var(--etc-black);
+
+  --popover: var(--etc-white);
+  --popover-foreground: var(--etc-black);
+
+  --primary: var(--etc-marigold);
+  --primary-foreground: var(--etc-black);
+
+  --secondary: var(--etc-gray);
+  --secondary-foreground: var(--etc-black);
+
+  --muted: var(--etc-gray);
+  --muted-foreground: #585858;
+
+  --accent: var(--etc-marigold);
+  --accent-foreground: var(--etc-black);
+
+  --destructive: #d92d20;
+  --destructive-foreground: var(--etc-white);
+
+  --border: #e5e7eb;
+  --input: #e5e7eb;
+  --ring: var(--etc-marigold);
+
+  --radius: 0.75rem;
+}
+
+/* Dark mode stubbed for forward-compat; Phase 1 ships light only. */
+.dark {
+  --background: var(--etc-black);
+  --foreground: var(--etc-cream);
+  --card: #0f0f0d;
+  --card-foreground: var(--etc-cream);
+  --popover: #0f0f0d;
+  --popover-foreground: var(--etc-cream);
+  --primary: var(--etc-marigold);
+  --primary-foreground: var(--etc-black);
+  --secondary: #1a1a18;
+  --secondary-foreground: var(--etc-cream);
+  --muted: #1a1a18;
+  --muted-foreground: #9a9a96;
+  --accent: var(--etc-marigold);
+  --accent-foreground: var(--etc-black);
+  --destructive: #f97066;
+  --destructive-foreground: var(--etc-black);
+  --border: #2a2a26;
+  --input: #2a2a26;
+  --ring: var(--etc-marigold);
+}
+
+@theme inline {
+  /* ETC brand utilities — bg-etc-marigold, text-etc-cream, border-etc-gray, ... */
+  --color-etc-marigold: var(--etc-marigold);
+  --color-etc-cream: var(--etc-cream);
+  --color-etc-black: var(--etc-black);
+  --color-etc-gray: var(--etc-gray);
+  --color-etc-white: var(--etc-white);
+
+  /* Semantic shadcn utilities — bg-background, bg-card, text-muted-foreground, ... */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans), Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
