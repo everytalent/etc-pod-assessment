@@ -60,6 +60,7 @@ export function AdminUsersTable({
   const router = useRouter();
   const [rows, setRows] = useState<AdminUser[]>(initialRows);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [inviteNotice, setInviteNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const grantable = grantableRoles(currentAdminRole);
@@ -77,6 +78,7 @@ export function AdminUsersTable({
 
   const onInvite = async (values: InviteValues) => {
     setServerError(null);
+    setInviteNotice(null);
     try {
       const res = await fetch("/api/admin/admin-users", {
         method: "POST",
@@ -91,9 +93,22 @@ export function AdminUsersTable({
         const text = await res.text().catch(() => "");
         throw new Error(text || `Failed (${res.status})`);
       }
-      const data = (await res.json()) as { admin: AdminUser };
+      const data = (await res.json()) as {
+        admin: AdminUser;
+        invite_email_sent: boolean;
+        invite_email_error: string | null;
+      };
       setRows((prev) => [data.admin, ...prev]);
-      reset({ email: "", role: "admin" });
+      reset({ email: "", role: grantable[0] ?? "assessor" });
+      if (data.invite_email_sent) {
+        setInviteNotice(
+          `Invitation email sent to ${data.admin.email}. They can also sign in directly via /admin/login.`,
+        );
+      } else {
+        setInviteNotice(
+          `Added ${data.admin.email} to the allowlist. (Invite email not delivered: ${data.invite_email_error ?? "unknown"}.) They can still sign in via /admin/login.`,
+        );
+      }
       router.refresh();
     } catch (err) {
       setServerError(err instanceof Error ? err.message : "Invite failed");
@@ -175,6 +190,12 @@ export function AdminUsersTable({
       {serverError && (
         <p className="rounded-xl border border-destructive bg-destructive/10 p-3 text-xs text-destructive">
           {serverError}
+        </p>
+      )}
+
+      {inviteNotice && (
+        <p className="rounded-xl border border-etc-marigold bg-etc-marigold/10 p-3 text-xs text-etc-black">
+          {inviteNotice}
         </p>
       )}
 

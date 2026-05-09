@@ -11,6 +11,7 @@
  */
 
 import { desc } from "drizzle-orm";
+import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -20,6 +21,7 @@ import {
 } from "@/lib/auth/admin";
 import { db } from "@/lib/db/client";
 import { adminUsers } from "@/lib/db/schema";
+import { getSupabaseAdmin } from "@/lib/supabase/storage-admin";
 
 const inviteSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(255),
@@ -67,8 +69,9 @@ export async function POST(req: Request) {
     );
   }
 
+  let created;
   try {
-    const [created] = await db
+    [created] = await db
       .insert(adminUsers)
       .values({
         email: input.email,
@@ -76,11 +79,52 @@ export async function POST(req: Request) {
         invitedBy: auth.session.admin.id,
       })
       .returning();
-    return NextResponse.json({ admin: created }, { status: 201 });
   } catch (err) {
     if (err instanceof Error && err.message.toLowerCase().includes("unique")) {
       return NextResponse.json({ error: "already_invited" }, { status: 409 });
     }
     throw err;
   }
+
+  // Send the invitation email via Supabase Auth's invite flow. The link in
+  // the email lands at /admin/auth-callback on whatever host requested
+  // this invite — derived from the incoming Origin/Host so it works on
+  // both the netlify.app fallback and admin.energytalentco.com.
+  let inviteEmailSent = false;
+  let inviteEmailError: string | null = null;
+  try {
+    const headerStore = await headers();
+    const origin =
+      headerStore.get("origin") ??
+      (headerStore.get("host")
+        ? `https://${headerStore.get("host")}`
+        : "https://admin.energytalentco.com");
+    const supa = getSupabaseAdmin();
+    const { error } = await supa.auth.admin.inviteUserByEmail(input.email, {
+      redirectTo: `${origin}/admin/auth-callback?next=/admin`,
+      data: {
+        invited_role: input.role,
+        invited_by_email: auth.session.email,
+      },
+    });
+    if (error) {
+      // Most common: user already exists in auth.users (e.g. someone who
+      // signed up before). Treat as soft-success — they can sign in via
+      // the regular magic-link flow now that they're allow-listed.
+      inviteEmailError = error.message;
+    } else {
+      inviteEmailSent = true;
+    }
+  } catch (err) {
+    inviteEmailError = err instanceof Error ? err.message : "unknown";
+  }
+
+  return NextResponse.json(
+    {
+      admin: created,
+      invite_email_sent: inviteEmailSent,
+      invite_email_error: inviteEmailError,
+    },
+    { status: 201 },
+  );
 }
