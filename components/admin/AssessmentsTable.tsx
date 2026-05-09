@@ -81,7 +81,7 @@ export function AssessmentsTable({ rows }: { rows: Row[] }) {
                 <span className="text-xs text-muted-foreground"> / {r.responseCount}</span>
               </Td>
               <Td className="text-right tabular-nums">
-                {r.avgScore !== null ? r.avgScore.toFixed(1) : "—"}
+                {r.avgScore !== null ? Number(r.avgScore).toFixed(1) : "—"}
               </Td>
               <Td className="pr-5 text-right">
                 <div className="flex justify-end gap-2 text-xs">

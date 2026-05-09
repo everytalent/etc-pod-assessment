@@ -31,7 +31,7 @@ export async function GET() {
       responseCount: count(responses.id),
       submittedCount:
         sql<number>`COUNT(CASE WHEN ${responses.status} = 'submitted' THEN 1 END)::int`,
-      avgScore: sql<number | null>`AVG(${responses.totalScore})`,
+      avgScore: sql<number | null>`AVG(${responses.totalScore})::float`,
     })
     .from(assessments)
     .leftJoin(responses, eq(responses.assessmentId, assessments.id))

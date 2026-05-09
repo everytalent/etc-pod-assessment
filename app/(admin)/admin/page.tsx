@@ -27,7 +27,8 @@ export default async function AdminDashboardPage() {
       responseCount: count(responses.id),
       submittedCount:
         sql<number>`COUNT(CASE WHEN ${responses.status} = 'submitted' THEN 1 END)::int`,
-      avgScore: sql<number | null>`AVG(${responses.totalScore})`,
+      // Cast to float so Postgres returns a JS number (numeric → string by default).
+      avgScore: sql<number | null>`AVG(${responses.totalScore})::float`,
     })
     .from(assessments)
     .leftJoin(responses, eq(responses.assessmentId, assessments.id))
