@@ -12,7 +12,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -50,6 +50,21 @@ export function IntakeForm({ slug, title, introText }: Props) {
     resolver: zodResolver(intakeSchema),
     defaultValues: { name: "", email: "", phone: "" },
   });
+
+  // Preview mode marker — when ?preview=true is on the URL, set a 1-hour
+  // cookie so the proxy allows candidate APIs on the admin host through
+  // the rest of the preview walk. SameSite=Lax keeps it out of cross-site
+  // requests; Secure (in prod via HTTPS) protects in-transit.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const isPreview = new URLSearchParams(window.location.search).get(
+      "preview",
+    ) === "true";
+    if (isPreview) {
+      const secure = window.location.protocol === "https:" ? " Secure;" : "";
+      document.cookie = `etc_preview=1; path=/; max-age=3600; SameSite=Lax;${secure}`;
+    }
+  }, []);
 
   const onSubmit = async (values: IntakeValues) => {
     setServerError(null);

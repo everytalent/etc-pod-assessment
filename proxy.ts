@@ -43,6 +43,15 @@ export async function proxy(request: NextRequest) {
   const adminPath = isAdminPath(path);
 
   // ---- Host gating ----
+  // Admin preview lets a logged-in admin walk the candidate flow on the
+  // admin host. We mark it with a short-lived `etc_preview` cookie set by
+  // the intake page; while present, candidate paths + candidate APIs are
+  // allowed on the admin host. Without that cookie (or an explicit
+  // ?preview=true on the URL), all non-admin paths on admin host 404.
+  const inPreviewMode =
+    request.nextUrl.searchParams.get("preview") === "true" ||
+    request.cookies.get("etc_preview")?.value === "1";
+
   if (onAdminHost && !adminPath) {
     // Bare root on admin host → bounce to /admin (which then runs auth gate).
     if (path === "/" || path === "") {
@@ -50,14 +59,10 @@ export async function proxy(request: NextRequest) {
       url.pathname = "/admin";
       return NextResponse.redirect(url);
     }
-    // Admin Preview button opens /assess/<slug>?preview=true on the admin
-    // host so the admin's auth cookie travels and the preview check passes.
-    // Allow that one combo through; everything else /assess/* on admin
-    // host is rejected.
-    const isPreview =
-      path.startsWith("/assess/") &&
-      request.nextUrl.searchParams.get("preview") === "true";
-    if (!isPreview) {
+    // Allow candidate page + API paths during preview.
+    const isPreviewablePath =
+      path.startsWith("/assess/") || path.startsWith("/api/");
+    if (!(inPreviewMode && isPreviewablePath)) {
       return new NextResponse("Not found", { status: 404 });
     }
   }
