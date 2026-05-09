@@ -124,6 +124,18 @@ export function QuestionEditorModal({
     }
   }, [timerEnabled, setValue, getValues]);
 
+  // Open-ended questions don't use negativePoints (no auto-scoring) and
+  // don't need options/correctAnswer. Reset those silently so the schema
+  // doesn't reject a save with stale invalid leftovers from a prior type.
+  useEffect(() => {
+    if (type === "open") {
+      if (getValues("negativePoints") !== 0) setValue("negativePoints", 0);
+      // Clear any stale option / correct-answer bookkeeping.
+      if (getValues("options").length !== 0) setValue("options", []);
+      if (getValues("correctAnswer").length !== 0) setValue("correctAnswer", []);
+    }
+  }, [type, setValue, getValues]);
+
   const onSubmit = async (values: UpsertQuestionInput) => {
     setServerError(null);
     try {
@@ -298,8 +310,16 @@ export function QuestionEditorModal({
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <FieldRow label="Points" error={errors.points?.message}>
+          <div
+            className={cn(
+              "grid gap-4",
+              type === "open" ? "grid-cols-1" : "grid-cols-2",
+            )}
+          >
+            <FieldRow
+              label={type === "open" ? "Max points (you assign during review)" : "Points"}
+              error={errors.points?.message}
+            >
               <input
                 type="number"
                 min={0}
@@ -307,17 +327,22 @@ export function QuestionEditorModal({
                 className={fieldInputClass}
               />
             </FieldRow>
-            <FieldRow
-              label="Negative points (on wrong)"
-              error={errors.negativePoints?.message}
-            >
-              <input
-                type="number"
-                min={0}
-                {...register("negativePoints", { valueAsNumber: true })}
-                className={fieldInputClass}
-              />
-            </FieldRow>
+            {/* Penalty only applies to auto-scored types. Open-ended is
+                manually graded so there's nothing to deduct. */}
+            {type !== "open" && (
+              <FieldRow
+                label="Deduction on wrong (points)"
+                hint="Positive number — subtracted on a wrong answer."
+                error={errors.negativePoints?.message}
+              >
+                <input
+                  type="number"
+                  min={0}
+                  {...register("negativePoints", { valueAsNumber: true })}
+                  className={fieldInputClass}
+                />
+              </FieldRow>
+            )}
           </div>
 
           <div className="rounded-xl border border-border bg-background/40 p-4">
