@@ -15,6 +15,13 @@
       "when": 1778335170333,
       "tag": "0001_busy_dakota_north",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778359233960,
+      "tag": "0002_freezing_mandrill",
+      "breakpoints": true
     }
   ]
 }

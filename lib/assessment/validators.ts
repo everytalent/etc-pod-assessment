@@ -30,17 +30,40 @@ export type StartSessionInput = z.infer<typeof startSessionSchema>;
 
 /* ---------- POST /api/answers ---------- */
 
-export const submitAnswerSchema = z.object({
-  question_id: z.string().uuid(),
-  /**
-   * Option ids as defined on `questions.options[].id`. For MCQ this will be a
-   * single id; multi-select reserved for later but the shape is already
-   * array-of-string.
-   */
-  selected_options: z.array(z.string().min(1).max(40)).max(20),
-  /** Client-reported elapsed seconds. Server cross-checks (PRD §5.2). */
-  time_spent_seconds: z.number().int().nonnegative().max(60 * 60),
-});
+export const submitAnswerSchema = z
+  .object({
+    question_id: z.string().uuid(),
+    /**
+     * Option ids for MCQ / multi_select / true_false. Empty for open-ended.
+     */
+    selected_options: z.array(z.string().min(1).max(40)).max(20).default([]),
+    /** Client-reported elapsed seconds. Server cross-checks (PRD §5.2). */
+    time_spent_seconds: z.number().int().nonnegative().max(60 * 60),
+    /** Open-ended text answer (when candidate chose "type instead"). */
+    text_response: z.string().trim().min(1).max(8000).optional(),
+    /**
+     * Open-ended voice answer — Storage path returned by
+     * /api/answers/voice/upload-url after the candidate's browser uploads
+     * the audio blob.
+     */
+    audio_path: z.string().min(1).max(200).optional(),
+    audio_duration_seconds: z
+      .number()
+      .int()
+      .min(0)
+      .max(60 * 10)
+      .optional(),
+  })
+  .superRefine((val, ctx) => {
+    // Open-ended payload sanity: at most one of text/audio.
+    if (val.text_response && val.audio_path) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["text_response"],
+        message: "Send either text_response or audio_path, not both.",
+      });
+    }
+  });
 export type SubmitAnswerInput = z.infer<typeof submitAnswerSchema>;
 
 /* ---------- Output shapes ---------- */

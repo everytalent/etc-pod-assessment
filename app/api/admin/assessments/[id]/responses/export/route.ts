@@ -86,6 +86,9 @@ export async function GET(
       responseId: answers.responseId,
       questionId: answers.questionId,
       selectedOptions: answers.selectedOptions,
+      textResponse: answers.textResponse,
+      audioPath: answers.audioPath,
+      audioDurationSeconds: answers.audioDurationSeconds,
       scoreAwarded: answers.scoreAwarded,
       timeSpentSeconds: answers.timeSpentSeconds,
       timedOut: answers.timedOut,
@@ -150,7 +153,24 @@ export async function GET(
       if (!ans) {
         row.push("", "");
       } else {
-        row.push(labelFor(ans.selectedOptions, q.options), ans.scoreAwarded);
+        // For open-ended, the "answer" cell is either the typed text or a
+        // [voice X:XX] tag. CSV stays one cell per question — adding more
+        // columns just for audio path would explode the column count for
+        // assessments with many open-ended Qs. Reviewers fetch the audio
+        // via the admin drill-in.
+        let answerCell: string;
+        if (ans.textResponse) {
+          answerCell = ans.textResponse;
+        } else if (ans.audioPath) {
+          const dur =
+            ans.audioDurationSeconds != null
+              ? `${Math.floor(ans.audioDurationSeconds / 60)}:${String(ans.audioDurationSeconds % 60).padStart(2, "0")}`
+              : "?";
+          answerCell = `[voice ${dur}] ${ans.audioPath}`;
+        } else {
+          answerCell = labelFor(ans.selectedOptions, q.options);
+        }
+        row.push(answerCell, ans.scoreAwarded);
       }
     }
     lines.push(csvRow(row));

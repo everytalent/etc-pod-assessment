@@ -1,10 +1,12 @@
 /**
- * Answer input — MCQ + T/F (Phase 1).
+ * Answer input — branches by question type.
  *
- * Optimistic UI: the tapped option highlights instantly (sets local `picked`
- * state), then calls onSubmit which fires the API request via the Zustand
- * store. While the request is in flight (`disabled=true`), the buttons are
- * inert. PRD §6: 44px min touch target, 8px gap, marigold accent on selection.
+ *   mcq | true_false : option buttons (Phase 1 — optimistic highlight)
+ *   open            : voice recorder by default, "Type instead" toggles to textarea
+ *   other           : "not available" placeholder (file_upload, formula reserved)
+ *
+ * onSubmit takes the full AnswerPayload — caller (ChatShell) just forwards
+ * to the Zustand store.
  */
 
 "use client";
@@ -12,33 +14,56 @@
 import { useState } from "react";
 
 import type { CandidateQuestion } from "@/lib/assessment/validators";
+import type { AnswerPayload } from "@/lib/state/candidate-session";
 import { cn } from "@/lib/utils";
+
+import { TextResponseInput } from "./TextResponseInput";
+import { VoiceRecorder } from "./VoiceRecorder";
 
 type Props = {
   question: CandidateQuestion;
-  onSubmit: (selectedOptions: string[]) => void;
+  onSubmit: (payload: AnswerPayload) => void;
   disabled?: boolean;
 };
 
 export function AnswerInput({ question, onSubmit, disabled = false }: Props) {
+  if (question.type === "mcq" || question.type === "true_false") {
+    return (
+      <McqAnswerInput
+        question={question}
+        onSubmit={onSubmit}
+        disabled={disabled}
+      />
+    );
+  }
+
+  if (question.type === "open") {
+    return (
+      <OpenEndedAnswerInput
+        question={question}
+        onSubmit={onSubmit}
+        disabled={disabled}
+      />
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-dashed bg-card p-4 text-xs text-muted-foreground">
+      This question type isn&rsquo;t available yet. Skip to continue.
+    </div>
+  );
+}
+
+/* ---------- MCQ / T-F ---------- */
+
+function McqAnswerInput({ question, onSubmit, disabled }: Props) {
   const [picked, setPicked] = useState<string | null>(null);
 
   const handleClick = (id: string) => {
     if (disabled || picked !== null) return;
     setPicked(id);
-    onSubmit([id]);
+    onSubmit({ selectedOptions: [id] });
   };
-
-  // Phase 1 supports MCQ + T/F (which we render as styled MCQ when the
-  // question carries `[true, false]` options). Other types are scaffolded in
-  // the data model but the UI hides them.
-  if (question.type !== "mcq" && question.type !== "true_false") {
-    return (
-      <div className="rounded-xl border border-dashed bg-card p-4 text-xs text-muted-foreground">
-        This question type isn&rsquo;t available yet. Skip to continue.
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col gap-2">
@@ -65,5 +90,44 @@ export function AnswerInput({ question, onSubmit, disabled = false }: Props) {
         );
       })}
     </div>
+  );
+}
+
+/* ---------- Open-ended (voice default, text fallback) ---------- */
+
+type Mode = "voice" | "text";
+
+function OpenEndedAnswerInput({ question, onSubmit, disabled }: Props) {
+  // Voice is the default per spec; toggle to text if candidate prefers / can't record.
+  const [mode, setMode] = useState<Mode>("voice");
+
+  if (mode === "voice") {
+    return (
+      <VoiceRecorder
+        questionId={question.id}
+        disabled={disabled}
+        onCancelToText={() => setMode("text")}
+        onUploaded={(result) => {
+          onSubmit({
+            selectedOptions: [],
+            audioPath: result.audioPath,
+            audioDurationSeconds: result.durationSeconds,
+          });
+        }}
+      />
+    );
+  }
+
+  return (
+    <TextResponseInput
+      disabled={disabled}
+      onCancelToVoice={() => setMode("voice")}
+      onSubmit={(text) => {
+        onSubmit({
+          selectedOptions: [],
+          textResponse: text,
+        });
+      }}
+    />
   );
 }

@@ -183,6 +183,26 @@ export const answers = pgTable(
       .$type<string[]>()
       .notNull()
       .default([]),
+    /**
+     * For type='open': the candidate's typed answer when they chose the
+     * text path instead of voice. Mutually exclusive with audio_path
+     * (only one of the two is populated per answer).
+     */
+    textResponse: text("text_response"),
+    /**
+     * For type='open': the Supabase Storage object path of the uploaded
+     * audio. Format: voice-responses/<response_id>/<question_id>.webm.
+     * Resolved to a short-lived signed URL when admins play it back.
+     */
+    audioPath: text("audio_path"),
+    /** Recorded duration in seconds (so admin UI can show length without fetching). */
+    audioDurationSeconds: integer("audio_duration_seconds"),
+    /**
+     * Open-ended answers can't auto-score — they need a human reviewer.
+     * scored_by is the admin_users.id who entered a score; null = unscored.
+     */
+    scoredBy: uuid("scored_by"),
+    scoredAt: timestamp("scored_at", { withTimezone: true }),
     timeSpentSeconds: integer("time_spent_seconds").notNull().default(0),
     timedOut: boolean("timed_out").notNull().default(false),
     scoreAwarded: integer("score_awarded").notNull().default(0),

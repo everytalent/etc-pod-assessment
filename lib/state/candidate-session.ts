@@ -24,8 +24,20 @@ export type AnsweredEntry = {
   selectedOptions: string[];
   /** Joined label of the chosen option(s), for the locked-bubble display. */
   selectedLabel: string | null;
+  /** Open-ended candidate-typed answer, if they chose "Type instead". */
+  textResponse: string | null;
+  /** Open-ended audio path (Supabase Storage), if voice was used. */
+  audioPath: string | null;
   /** Score awarded for this answer (delta from total). */
   scoreDelta: number;
+};
+
+/** Submission payload — only one of selectedOptions/text/audio populated per answer. */
+export type AnswerPayload = {
+  selectedOptions: string[];
+  textResponse?: string;
+  audioPath?: string;
+  audioDurationSeconds?: number;
 };
 
 export type CandidateSessionState = {
@@ -48,13 +60,17 @@ export type CandidateSessionState = {
     score: number;
   }) => void;
 
-  /** Submit the current question's answer. Selection is the array of option ids. */
-  submitAnswer: (selectedOptions: string[]) => Promise<void>;
+  /** Submit the current question's answer. Caller picks one shape per type. */
+  submitAnswer: (payload: AnswerPayload) => Promise<void>;
 };
 
 function nowMs(): number {
   if (typeof performance !== "undefined") return performance.now();
   return Date.now();
+}
+
+function truncate(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
 }
 
 export const useCandidateSession = create<CandidateSessionState>((set, get) => ({
@@ -82,7 +98,7 @@ export const useCandidateSession = create<CandidateSessionState>((set, get) => (
     });
   },
 
-  submitAnswer: async (selectedOptions) => {
+  submitAnswer: async (payload) => {
     const state = get();
     const q = state.currentQuestion;
     if (!q || state.isSubmitting) return;
@@ -98,8 +114,11 @@ export const useCandidateSession = create<CandidateSessionState>((set, get) => (
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question_id: q.id,
-          selected_options: selectedOptions,
+          selected_options: payload.selectedOptions,
           time_spent_seconds: timeSpentSeconds,
+          text_response: payload.textResponse,
+          audio_path: payload.audioPath,
+          audio_duration_seconds: payload.audioDurationSeconds,
         }),
       });
 
@@ -112,15 +131,24 @@ export const useCandidateSession = create<CandidateSessionState>((set, get) => (
         total_score?: number;
       };
 
-      const selectedLabels = selectedOptions
+      const selectedLabels = payload.selectedOptions
         .map((id) => q.options.find((o) => o.id === id)?.label)
         .filter((l): l is string => Boolean(l));
+
       const entry: AnsweredEntry = {
         questionId: q.id,
         questionText: q.questionText,
-        selectedOptions,
+        selectedOptions: payload.selectedOptions,
         selectedLabel:
-          selectedLabels.length > 0 ? selectedLabels.join(", ") : null,
+          selectedLabels.length > 0
+            ? selectedLabels.join(", ")
+            : payload.textResponse
+              ? truncate(payload.textResponse, 80)
+              : payload.audioPath
+                ? "🎙️ Voice answer recorded"
+                : null,
+        textResponse: payload.textResponse ?? null,
+        audioPath: payload.audioPath ?? null,
         scoreDelta: data.score_so_far - state.scoreSoFar,
       };
 

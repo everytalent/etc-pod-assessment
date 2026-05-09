@@ -21,17 +21,7 @@ export default function Home() {
         >
           Try a demo assessment
         </Link>
-        <Link
-          href="/admin"
-          className="inline-flex h-11 items-center justify-center rounded-xl border bg-card px-5 text-sm font-medium text-foreground hover:border-etc-marigold"
-        >
-          Admin
-        </Link>
       </div>
-
-      <p className="mt-12 text-xs text-muted-foreground">
-        Phase 1 scaffold. Built per <code>PRD.md</code>.
-      </p>
     </main>
   );
 }

@@ -64,11 +64,7 @@ export function ChatShell({ initial }: { initial: ChatShellInitial }) {
   const denom = Math.max(initial.totalQuestions, history.length + 1);
   const onTimeout = () => {
     if (isSubmitting) return;
-    void submitAnswer([]);
-  };
-  const onPick = (selected: string[]) => {
-    if (isSubmitting) return;
-    void submitAnswer(selected);
+    void submitAnswer({ selectedOptions: [] });
   };
 
   return (
@@ -97,7 +93,10 @@ export function ChatShell({ initial }: { initial: ChatShellInitial }) {
           <AnswerInput
             key={`input-${currentQuestion.id}`}
             question={currentQuestion}
-            onSubmit={onPick}
+            onSubmit={(payload) => {
+              if (isSubmitting) return;
+              void submitAnswer(payload);
+            }}
             disabled={isSubmitting}
           />
         )}

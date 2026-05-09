@@ -29,14 +29,23 @@ type Props = {
   onSaved: (saved: Question) => void;
 };
 
+// Phase 2: only the three types we actually render in the candidate UI.
+// `voice`, `file`, `formula` remain in the schema enum for forward-compat
+// but the admin dropdown hides them.
 const QUESTION_TYPES: UpsertQuestionInput["type"][] = [
   "mcq",
   "true_false",
   "open",
-  "voice",
-  "file",
-  "formula",
 ];
+
+const TYPE_LABELS: Record<UpsertQuestionInput["type"], string> = {
+  mcq: "Multiple choice",
+  true_false: "True / False",
+  open: "Open-ended (voice or text)",
+  voice: "voice (legacy)",
+  file: "file (legacy)",
+  formula: "formula (legacy)",
+};
 
 const TIMEOUT_ACTIONS: UpsertQuestionInput["timeoutAction"][] = [
   "auto_submit",
@@ -186,7 +195,7 @@ export function QuestionEditorModal({
               <select {...register("type")} className={fieldInputClass}>
                 {QUESTION_TYPES.map((t) => (
                   <option key={t} value={t}>
-                    {t}
+                    {TYPE_LABELS[t]}
                   </option>
                 ))}
               </select>
@@ -210,6 +219,21 @@ export function QuestionEditorModal({
               className={cn(fieldInputClass, "h-auto py-2")}
             />
           </FieldRow>
+
+          {type === "open" && (
+            <div className="rounded-xl border border-dashed border-etc-marigold bg-etc-marigold/10 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wider text-etc-black">
+                Open-ended
+              </p>
+              <p className="mt-2 text-xs text-foreground">
+                Candidate sees a voice recorder by default with a &ldquo;Type
+                instead&rdquo; toggle. Both responses are reviewed manually:
+                <strong> score_awarded starts at 0</strong> and you assign points
+                from the response drill-in. <strong>Points</strong> below is the
+                maximum you can award; negative_points is unused.
+              </p>
+            </div>
+          )}
 
           {(type === "mcq" || type === "true_false") && (
             <div className="rounded-xl border border-dashed border-border bg-background/40 p-4">

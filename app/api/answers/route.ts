@@ -145,16 +145,20 @@ export async function POST(req: Request) {
     effectiveTimeSpent > question.timeLimitSeconds;
 
   /* ---- Score + persist ---- */
-  const scoreAwarded = scoreAnswer(
-    question,
-    input.selected_options,
-    timedOut,
-  );
+  // Open-ended (text or voice) cannot auto-score — score_awarded stays at 0
+  // until an admin reviews. Other types score immediately via the pure layer.
+  const isOpenEnded = question.type === "open";
+  const scoreAwarded = isOpenEnded
+    ? 0
+    : scoreAnswer(question, input.selected_options, timedOut);
 
   await db.insert(answers).values({
     responseId,
     questionId: question.id,
     selectedOptions: input.selected_options,
+    textResponse: input.text_response ?? null,
+    audioPath: input.audio_path ?? null,
+    audioDurationSeconds: input.audio_duration_seconds ?? null,
     timeSpentSeconds: Math.round(effectiveTimeSpent),
     timedOut,
     scoreAwarded,
