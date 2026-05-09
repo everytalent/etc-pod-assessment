@@ -1,16 +1,17 @@
 /**
- * /admin/users — allowlist management. Superadmin only.
+ * /admin/users — allowlist management. Visible to admin + superadmin.
  *
- * Lists every admin_users row, with an inline invite form and per-row
- * remove. Non-superadmins get a 404 so the route doesn't even hint at its
- * existence.
+ * Editor + assessor get 404 — the route doesn't hint at its existence.
+ *
+ * Admin can invite editor + assessor and remove the same.
+ * Superadmin can invite/remove any role (incl. other superadmins).
  */
 
 import { desc } from "drizzle-orm";
 import { notFound } from "next/navigation";
 
 import { AdminUsersTable } from "@/components/admin/AdminUsersTable";
-import { getAdminSession } from "@/lib/auth/admin";
+import { CAN, getAdminSession } from "@/lib/auth/admin";
 import { db } from "@/lib/db/client";
 import { adminUsers } from "@/lib/db/schema";
 
@@ -18,7 +19,7 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminUsersPage() {
   const session = await getAdminSession();
-  if (!session || session.admin.role !== "superadmin") {
+  if (!session || !CAN.viewUsersPage(session.admin.role)) {
     notFound();
   }
 
@@ -34,14 +35,15 @@ export default async function AdminUsersPage() {
       </p>
       <h1 className="mt-1 text-3xl font-bold tracking-tight">Admin users</h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        Anyone in this list can sign in via magic link. Anyone outside is rejected
-        at the auth callback. Removing yourself is blocked; removing the last
-        superadmin is blocked.
+        Anyone in this list can sign in via magic link; anyone outside is
+        rejected at the auth callback. Removing yourself is blocked; removing
+        the last superadmin is blocked.
       </p>
       <div className="mt-8">
         <AdminUsersTable
           rows={rows}
           currentAdminId={session.admin.id}
+          currentAdminRole={session.admin.role}
         />
       </div>
     </main>

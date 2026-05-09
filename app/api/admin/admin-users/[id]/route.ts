@@ -1,15 +1,22 @@
 /**
- * DELETE /api/admin/admin-users/[id] — revoke an admin (superadmin only).
+ * DELETE /api/admin/admin-users/[id] — remove a user from the allowlist.
  *
- * Two safety rails:
+ * Permissions:
+ *   admin      → can remove editor + assessor only.
+ *   superadmin → can remove any user.
+ *
+ * Safety rails (apply to all callers):
  *   1. Cannot delete yourself (would lock yourself out).
- *   2. Cannot delete the last superadmin.
+ *   2. Cannot remove the last superadmin.
  */
 
 import { and, eq, ne, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
-import { requireSuperAdminApi } from "@/lib/auth/admin";
+import {
+  hasRoleAtLeast,
+  requireAdminTierApi,
+} from "@/lib/auth/admin";
 import { db } from "@/lib/db/client";
 import { adminUsers } from "@/lib/db/schema";
 
@@ -17,7 +24,7 @@ export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await requireSuperAdminApi();
+  const auth = await requireAdminTierApi();
   if (!auth.user) return auth.unauthorized;
   const { id } = await params;
 
@@ -28,7 +35,6 @@ export async function DELETE(
     );
   }
 
-  // Look up the row first so we know its role.
   const [target] = await db
     .select({ id: adminUsers.id, role: adminUsers.role })
     .from(adminUsers)
@@ -38,7 +44,23 @@ export async function DELETE(
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 
-  // If deleting a superadmin, ensure at least one other superadmin remains.
+  // Tier check: only superadmin can remove admin or superadmin users.
+  // Admin tier can remove editor + assessor only.
+  const targetIsAdminTier = hasRoleAtLeast(target.role, "admin");
+  if (
+    targetIsAdminTier &&
+    !hasRoleAtLeast(auth.session.admin.role, "superadmin")
+  ) {
+    return NextResponse.json(
+      {
+        error: "insufficient_role",
+        message: "Only a superadmin can remove an admin or superadmin.",
+      },
+      { status: 403 },
+    );
+  }
+
+  // If removing the last superadmin, block it regardless of who's calling.
   if (target.role === "superadmin") {
     const [{ count }] = await db
       .select({ count: sql<number>`COUNT(*)::int` })
@@ -46,7 +68,10 @@ export async function DELETE(
       .where(and(eq(adminUsers.role, "superadmin"), ne(adminUsers.id, id)));
     if (count === 0) {
       return NextResponse.json(
-        { error: "would_orphan_admins", message: "Cannot remove the last superadmin." },
+        {
+          error: "would_orphan_admins",
+          message: "Cannot remove the last superadmin.",
+        },
         { status: 400 },
       );
     }

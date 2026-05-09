@@ -5,15 +5,26 @@
  * also wraps /login and /auth-callback; for those (no session), we render
  * bare-bones with no chrome.
  *
- * "Users" nav link is visible only to superadmin role.
+ * Nav items render based on role tier (CAN.* helpers):
+ *   - Assessments link: everyone in the allowlist
+ *   - Users link: admin + superadmin
  */
 
 import Link from "next/link";
 
 import { AdminSignOutButton } from "@/components/admin/AdminSignOutButton";
-import { getAdminSession } from "@/lib/auth/admin";
+import { CAN, getAdminSession } from "@/lib/auth/admin";
+import type { AdminUser } from "@/lib/db/schema";
+import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
+
+const ROLE_BADGE: Record<AdminUser["role"], string> = {
+  superadmin: "border-etc-marigold bg-etc-marigold/15 text-etc-black",
+  admin: "border-etc-marigold/60 bg-etc-marigold/5 text-foreground",
+  editor: "border-border bg-muted text-foreground",
+  assessor: "border-border bg-muted text-muted-foreground",
+};
 
 export default async function AdminLayout({
   children,
@@ -25,7 +36,7 @@ export default async function AdminLayout({
     return <>{children}</>;
   }
 
-  const isSuperadmin = session.admin.role === "superadmin";
+  const role = session.admin.role;
 
   return (
     <div className="min-h-dvh bg-background">
@@ -48,7 +59,7 @@ export default async function AdminLayout({
               >
                 Assessments
               </Link>
-              {isSuperadmin && (
+              {CAN.viewUsersPage(role) && (
                 <Link
                   href="/admin/users"
                   className="text-muted-foreground hover:text-foreground"
@@ -59,13 +70,16 @@ export default async function AdminLayout({
             </nav>
           </div>
           <div className="flex items-center gap-3">
-            <span className="hidden text-xs text-muted-foreground sm:inline">
+            <span className="hidden items-center gap-2 text-xs text-muted-foreground sm:inline-flex">
               {session.email}
-              {isSuperadmin && (
-                <span className="ml-2 rounded-full border border-etc-marigold bg-etc-marigold/15 px-2 py-0.5 text-[0.6rem] font-medium uppercase tracking-wider text-etc-black">
-                  superadmin
-                </span>
-              )}
+              <span
+                className={cn(
+                  "rounded-full border px-2 py-0.5 text-[0.6rem] font-medium uppercase tracking-wider",
+                  ROLE_BADGE[role],
+                )}
+              >
+                {role}
+              </span>
             </span>
             <AdminSignOutButton />
           </div>

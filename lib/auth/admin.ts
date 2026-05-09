@@ -1,13 +1,15 @@
 /**
- * Admin auth helpers — Server Components + API routes.
+ * Admin auth + role-tier helpers — Server Components + API routes.
  *
  * Two-layer auth:
  *   1. Supabase magic-link verifies the email (via /admin/auth-callback).
  *   2. The email must also exist in the `admin_users` allowlist table.
  *
- * If a candidate emails their way through Supabase but isn't on the
- * allowlist, the auth-callback signs them out before they ever land on
- * /admin. These helpers are the second-line check inside server code.
+ * Role tiers (high → low privilege on user management):
+ *   superadmin > admin > editor > assessor
+ *
+ * Permission helpers map roles to capabilities. Use these instead of
+ * comparing role strings ad-hoc.
  */
 
 import { eq } from "drizzle-orm";
@@ -17,17 +19,67 @@ import { db } from "@/lib/db/client";
 import { adminUsers, type AdminUser } from "@/lib/db/schema";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+export type AdminRole = AdminUser["role"];
+
+/* ---------- Role tier ordering ---------- */
+
+const ROLE_RANK: Record<AdminRole, number> = {
+  superadmin: 4,
+  admin: 3,
+  editor: 2,
+  assessor: 1,
+};
+
+/** Returns true if `role` is at or above the rank of `min`. */
+export function hasRoleAtLeast(role: AdminRole, min: AdminRole): boolean {
+  return ROLE_RANK[role] >= ROLE_RANK[min];
+}
+
+/* ---------- Capability matrix ---------- */
+
+/**
+ * Capabilities, keyed by feature. Centralised so the UI and server share
+ * the same truth.
+ */
+export const CAN = {
+  // Read everywhere; everyone in the allowlist sees the dashboard.
+  viewDashboard: (r: AdminRole) => hasRoleAtLeast(r, "assessor"),
+  viewResponses: (r: AdminRole) => hasRoleAtLeast(r, "assessor"),
+  scoreOpenEnded: (r: AdminRole) => hasRoleAtLeast(r, "assessor"),
+  // Editor-and-up: authoring + exports + archive.
+  editAssessments: (r: AdminRole) => hasRoleAtLeast(r, "editor"),
+  exportResponses: (r: AdminRole) => hasRoleAtLeast(r, "editor"),
+  archiveAudio: (r: AdminRole) => hasRoleAtLeast(r, "editor"),
+  // Editor + admin (and super) can delete responses; assessor cannot.
+  deleteResponses: (r: AdminRole) => hasRoleAtLeast(r, "editor"),
+  // Admin-and-up: invite editor/assessor users.
+  inviteEditorOrAssessor: (r: AdminRole) => hasRoleAtLeast(r, "admin"),
+  removeEditorOrAssessor: (r: AdminRole) => hasRoleAtLeast(r, "admin"),
+  // Super-only: invite/remove other admins or supers.
+  inviteAdminOrSuper: (r: AdminRole) => hasRoleAtLeast(r, "superadmin"),
+  removeAdminOrSuper: (r: AdminRole) => hasRoleAtLeast(r, "superadmin"),
+  // Visibility — only super sees the Users nav item.
+  viewUsersPage: (r: AdminRole) => hasRoleAtLeast(r, "admin"),
+} as const;
+
+/** Roles an inviter is allowed to grant when adding a new admin_user. */
+export function rolesGrantableBy(inviter: AdminRole): AdminRole[] {
+  if (inviter === "superadmin") {
+    return ["superadmin", "admin", "editor", "assessor"];
+  }
+  if (inviter === "admin") return ["editor", "assessor"];
+  return [];
+}
+
+/* ---------- Session lookup ---------- */
+
 export type AdminSession = {
   authUserId: string;
   email: string;
   admin: AdminUser;
 };
 
-/**
- * Returns the joined Supabase user + admin_users row, or null if either is
- * missing. `null` means "treat as unauthenticated" — caller should redirect
- * or 401.
- */
+/** Joined Supabase user + admin_users row, or null if either is missing. */
 export async function getAdminSession(): Promise<AdminSession | null> {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase.auth.getUser();
@@ -43,7 +95,7 @@ export async function getAdminSession(): Promise<AdminSession | null> {
   return { authUserId: data.user.id, email: data.user.email, admin };
 }
 
-/** Back-compat: existing callers using getAdminUser() get the auth user object only. */
+/** Convenience: just the user shape (with role) — for back-compat. */
 export async function getAdminUser() {
   const session = await getAdminSession();
   return session
@@ -55,18 +107,17 @@ export async function getAdminUser() {
     : null;
 }
 
+/* ---------- API gate helpers ---------- */
+
 export type RequireAdminApiResult =
   | { user: null; unauthorized: NextResponse; session: null }
-  | { user: { id: string; email: string }; unauthorized: null; session: AdminSession };
+  | {
+      user: { id: string; email: string };
+      unauthorized: null;
+      session: AdminSession;
+    };
 
-/**
- * For API routes — returns 401 NextResponse if not allow-listed, otherwise
- * the resolved AdminSession. Pattern:
- *
- *   const auth = await requireAdminApi();
- *   if (!auth.user) return auth.unauthorized;
- *   // auth.session.admin.role === "superadmin" | "admin"
- */
+/** Any allow-listed user. Use as a baseline check. */
 export async function requireAdminApi(): Promise<RequireAdminApiResult> {
   const session = await getAdminSession();
   if (!session) {
@@ -86,19 +137,33 @@ export async function requireAdminApi(): Promise<RequireAdminApiResult> {
   };
 }
 
-/** For superadmin-only API routes (manage admin_users). */
-export async function requireSuperAdminApi(): Promise<RequireAdminApiResult> {
+/**
+ * Generic role-tier gate. Pattern:
+ *
+ *   const auth = await requireRoleApi("editor");
+ *   if (!auth.user) return auth.unauthorized;
+ *   // auth.session.admin.role is editor | admin | superadmin
+ */
+export async function requireRoleApi(
+  min: AdminRole,
+): Promise<RequireAdminApiResult> {
   const result = await requireAdminApi();
   if (!result.user) return result;
-  if (result.session.admin.role !== "superadmin") {
+  if (!hasRoleAtLeast(result.session.admin.role, min)) {
     return {
       user: null,
       session: null,
       unauthorized: NextResponse.json(
-        { error: "forbidden", message: "superadmin only" },
+        { error: "forbidden", message: `${min}-or-above only` },
         { status: 403 },
       ),
     };
   }
   return result;
 }
+
+/* ---------- Convenience wrappers ---------- */
+
+export const requireSuperAdminApi = () => requireRoleApi("superadmin");
+export const requireAdminTierApi = () => requireRoleApi("admin");
+export const requireEditorApi = () => requireRoleApi("editor");

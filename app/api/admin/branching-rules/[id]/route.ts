@@ -8,7 +8,7 @@
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
-import { requireAdminApi } from "@/lib/auth/admin";
+import { requireEditorApi } from "@/lib/auth/admin";
 import { db } from "@/lib/db/client";
 import { branchingRules } from "@/lib/db/schema";
 
@@ -16,7 +16,7 @@ export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await requireAdminApi();
+  const auth = await requireEditorApi();
   if (!auth.user) return auth.unauthorized;
   const { id } = await params;
   const removed = await db

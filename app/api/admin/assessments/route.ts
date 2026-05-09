@@ -9,7 +9,7 @@ import { count, desc, eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
-import { requireAdminApi } from "@/lib/auth/admin";
+import { requireAdminApi, requireEditorApi } from "@/lib/auth/admin";
 import { db } from "@/lib/db/client";
 import { assessments, responses } from "@/lib/db/schema";
 import { upsertAssessmentSchema } from "@/lib/admin/validators";
@@ -42,7 +42,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireAdminApi();
+  const auth = await requireEditorApi();
   if (!auth.user) return auth.unauthorized;
 
   let input;

@@ -18,26 +18,52 @@ import { cn } from "@/lib/utils";
 
 const inviteSchema = z.object({
   email: z.string().trim().toLowerCase().email("Enter a valid email").max(255),
-  role: z.enum(["superadmin", "admin"]),
+  role: z.enum(["superadmin", "admin", "editor", "assessor"]),
 });
 type InviteValues = z.infer<typeof inviteSchema>;
 
 const ROLE_STYLE: Record<AdminUser["role"], string> = {
   superadmin: "border-etc-marigold bg-etc-marigold/15 text-etc-black",
-  admin: "border-border bg-muted text-muted-foreground",
+  admin: "border-etc-marigold/60 bg-etc-marigold/5 text-foreground",
+  editor: "border-border bg-card text-foreground",
+  assessor: "border-border bg-muted text-muted-foreground",
 };
+
+/** Roles the inviter is allowed to grant. Mirrors lib/auth/admin.rolesGrantableBy. */
+function grantableRoles(role: AdminUser["role"]): AdminUser["role"][] {
+  if (role === "superadmin") return ["superadmin", "admin", "editor", "assessor"];
+  if (role === "admin") return ["editor", "assessor"];
+  return [];
+}
+
+/** Roles the current admin can remove from the allowlist. */
+function canRemoveRole(
+  currentRole: AdminUser["role"],
+  targetRole: AdminUser["role"],
+): boolean {
+  if (currentRole === "superadmin") return true;
+  if (currentRole === "admin") {
+    return targetRole === "editor" || targetRole === "assessor";
+  }
+  return false;
+}
 
 export function AdminUsersTable({
   rows: initialRows,
   currentAdminId,
+  currentAdminRole,
 }: {
   rows: AdminUser[];
   currentAdminId: string;
+  currentAdminRole: AdminUser["role"];
 }) {
   const router = useRouter();
   const [rows, setRows] = useState<AdminUser[]>(initialRows);
   const [serverError, setServerError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  const grantable = grantableRoles(currentAdminRole);
+  const canInvite = grantable.length > 0;
 
   const {
     register,
@@ -46,7 +72,7 @@ export function AdminUsersTable({
     formState: { errors, isSubmitting },
   } = useForm<InviteValues>({
     resolver: zodResolver(inviteSchema),
-    defaultValues: { email: "", role: "admin" },
+    defaultValues: { email: "", role: grantable[0] ?? "assessor" },
   });
 
   const onInvite = async (values: InviteValues) => {
@@ -98,44 +124,53 @@ export function AdminUsersTable({
 
   return (
     <div className="space-y-6">
-      <form
-        onSubmit={handleSubmit(onInvite)}
-        noValidate
-        className="grid gap-3 rounded-2xl border border-border bg-card p-4 sm:grid-cols-[1fr_140px_120px] sm:items-end"
-      >
-        <label className="flex flex-col gap-1.5 sm:col-span-1">
-          <span className="text-xs font-medium text-foreground">Email</span>
-          <input
-            type="email"
-            autoComplete="email"
-            placeholder="new.admin@example.com"
-            {...register("email")}
-            className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm focus-visible:border-etc-marigold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-etc-marigold"
-          />
-          {errors.email && (
-            <span className="text-[0.7rem] text-destructive">
-              {errors.email.message}
-            </span>
-          )}
-        </label>
-        <label className="flex flex-col gap-1.5">
-          <span className="text-xs font-medium text-foreground">Role</span>
-          <select
-            {...register("role")}
-            className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm focus-visible:border-etc-marigold"
-          >
-            <option value="admin">admin</option>
-            <option value="superadmin">superadmin</option>
-          </select>
-        </label>
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="inline-flex h-10 items-center justify-center rounded-xl bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:opacity-60"
+      {canInvite ? (
+        <form
+          onSubmit={handleSubmit(onInvite)}
+          noValidate
+          className="grid gap-3 rounded-2xl border border-border bg-card p-4 sm:grid-cols-[1fr_160px_120px] sm:items-end"
         >
-          {isSubmitting ? "Adding…" : "Invite"}
-        </button>
-      </form>
+          <label className="flex flex-col gap-1.5 sm:col-span-1">
+            <span className="text-xs font-medium text-foreground">Email</span>
+            <input
+              type="email"
+              autoComplete="email"
+              placeholder="new.user@example.com"
+              {...register("email")}
+              className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm focus-visible:border-etc-marigold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-etc-marigold"
+            />
+            {errors.email && (
+              <span className="text-[0.7rem] text-destructive">
+                {errors.email.message}
+              </span>
+            )}
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-foreground">Role</span>
+            <select
+              {...register("role")}
+              className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm focus-visible:border-etc-marigold"
+            >
+              {grantable.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="inline-flex h-10 items-center justify-center rounded-xl bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:opacity-60"
+          >
+            {isSubmitting ? "Adding…" : "Invite"}
+          </button>
+        </form>
+      ) : (
+        <p className="rounded-xl border border-dashed border-border bg-card p-4 text-xs text-muted-foreground">
+          You don&rsquo;t have permission to invite users.
+        </p>
+      )}
 
       {serverError && (
         <p className="rounded-xl border border-destructive bg-destructive/10 p-3 text-xs text-destructive">
@@ -189,6 +224,13 @@ export function AdminUsersTable({
                   <td className="px-3 py-3 pr-5 text-right align-middle">
                     {r.id === currentAdminId ? (
                       <span className="text-[0.7rem] text-muted-foreground">—</span>
+                    ) : !canRemoveRole(currentAdminRole, r.role) ? (
+                      <span
+                        className="text-[0.7rem] text-muted-foreground"
+                        title="You don't have permission to remove this role."
+                      >
+                        —
+                      </span>
                     ) : (
                       <button
                         type="button"

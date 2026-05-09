@@ -12,12 +12,12 @@ import { ZodError } from "zod";
 
 import { upsertBranchingRuleSchema } from "@/lib/admin/validators";
 import { detectCycles } from "@/lib/assessment/engine";
-import { requireAdminApi } from "@/lib/auth/admin";
+import { requireEditorApi } from "@/lib/auth/admin";
 import { db } from "@/lib/db/client";
 import { branchingRules, questions } from "@/lib/db/schema";
 
 export async function POST(req: Request) {
-  const auth = await requireAdminApi();
+  const auth = await requireEditorApi();
   if (!auth.user) return auth.unauthorized;
 
   let input;

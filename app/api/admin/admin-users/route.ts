@@ -1,27 +1,33 @@
 /**
- * GET  /api/admin/admin-users — list allow-listed admins (superadmin only).
- * POST /api/admin/admin-users — invite a new admin (superadmin only).
+ * GET  /api/admin/admin-users — list allow-listed users.
+ * POST /api/admin/admin-users — invite a user.
  *
- * "Invite" here just adds a row to admin_users. The invitee then signs in
- * via the normal magic-link flow; the auth-callback's allowlist check now
- * passes for them.
+ * Permissions (PRD §10 roles):
+ *   GET  : admin tier and up (admin, superadmin) — assessor/editor never see this page.
+ *   POST : admin can grant editor/assessor; superadmin can grant any role.
+ *
+ * "Invite" just adds a row to admin_users. The invitee then signs in via
+ * magic link and the auth-callback's allowlist check passes for them.
  */
 
 import { desc } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { requireSuperAdminApi } from "@/lib/auth/admin";
+import {
+  requireAdminTierApi,
+  rolesGrantableBy,
+} from "@/lib/auth/admin";
 import { db } from "@/lib/db/client";
 import { adminUsers } from "@/lib/db/schema";
 
 const inviteSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(255),
-  role: z.enum(["superadmin", "admin"]).default("admin"),
+  role: z.enum(["superadmin", "admin", "editor", "assessor"]),
 });
 
 export async function GET() {
-  const auth = await requireSuperAdminApi();
+  const auth = await requireAdminTierApi();
   if (!auth.user) return auth.unauthorized;
 
   const rows = await db
@@ -32,7 +38,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireSuperAdminApi();
+  const auth = await requireAdminTierApi();
   if (!auth.user) return auth.unauthorized;
 
   let input;
@@ -48,6 +54,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   }
 
+  // Inviter can only grant roles their tier permits.
+  const grantable = rolesGrantableBy(auth.session.admin.role);
+  if (!grantable.includes(input.role)) {
+    return NextResponse.json(
+      {
+        error: "role_not_grantable",
+        message: `${auth.session.admin.role} cannot grant ${input.role} role.`,
+        allowed: grantable,
+      },
+      { status: 403 },
+    );
+  }
+
   try {
     const [created] = await db
       .insert(adminUsers)
@@ -59,12 +78,8 @@ export async function POST(req: Request) {
       .returning();
     return NextResponse.json({ admin: created }, { status: 201 });
   } catch (err) {
-    // Unique constraint violation on email.
     if (err instanceof Error && err.message.toLowerCase().includes("unique")) {
-      return NextResponse.json(
-        { error: "already_invited" },
-        { status: 409 },
-      );
+      return NextResponse.json({ error: "already_invited" }, { status: 409 });
     }
     throw err;
   }

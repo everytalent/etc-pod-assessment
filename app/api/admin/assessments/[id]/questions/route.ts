@@ -7,7 +7,7 @@ import { eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
-import { requireAdminApi } from "@/lib/auth/admin";
+import { requireEditorApi } from "@/lib/auth/admin";
 import { db } from "@/lib/db/client";
 import { assessments, questions } from "@/lib/db/schema";
 import { upsertQuestionSchema } from "@/lib/admin/validators";
@@ -16,7 +16,7 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await requireAdminApi();
+  const auth = await requireEditorApi();
   if (!auth.user) return auth.unauthorized;
   const { id } = await params;
 

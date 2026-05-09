@@ -47,7 +47,19 @@ export const responseStatusEnum = pgEnum("response_status", [
   "submitted",
   "abandoned",
 ]);
-export const adminRoleEnum = pgEnum("admin_role", ["superadmin", "admin"]);
+/**
+ * Admin role tiers (least → most privileged on user management):
+ *   assessor   — read responses + score open-ended only.
+ *   editor     — assessor + author/edit assessments + export + archive.
+ *   admin      — editor + invite/remove editor & assessor users.
+ *   superadmin — admin + invite/remove any role (incl. other supers).
+ */
+export const adminRoleEnum = pgEnum("admin_role", [
+  "superadmin",
+  "admin",
+  "editor",
+  "assessor",
+]);
 
 /* ---------- jsonb shapes ---------- */
 

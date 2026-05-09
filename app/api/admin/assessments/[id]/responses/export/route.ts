@@ -5,14 +5,14 @@
  * extra columns are appended: `q{N}_answer` (the option label or text) and
  * `q{N}_score` (points awarded). This shape pivots cleanly in Excel.
  *
- * Security: gated by requireAdminApi() — any allow-listed admin can export.
+ * Security: gated by requireEditorApi() — any allow-listed admin can export.
  * Streamed as text/csv so big lists don't materialise in memory.
  */
 
 import { asc, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
-import { requireAdminApi } from "@/lib/auth/admin";
+import { requireEditorApi } from "@/lib/auth/admin";
 import { db } from "@/lib/db/client";
 import {
   answers,
@@ -49,7 +49,7 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await requireAdminApi();
+  const auth = await requireEditorApi();
   if (!auth.user) return auth.unauthorized;
   const { id } = await params;
 
