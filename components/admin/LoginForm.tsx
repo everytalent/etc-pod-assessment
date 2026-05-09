@@ -19,9 +19,25 @@ const schema = z.object({
 });
 type Values = z.infer<typeof schema>;
 
-export function LoginForm({ next }: { next: string }) {
+function humaniseError(code: string | null): string | null {
+  if (!code) return null;
+  if (code === "not_authorized") {
+    return "That email isn't on the admin allowlist. Ask a superadmin to invite you.";
+  }
+  return code;
+}
+
+export function LoginForm({
+  next,
+  initialError = null,
+}: {
+  next: string;
+  initialError?: string | null;
+}) {
   const [status, setStatus] = useState<"idle" | "sent" | "error">("idle");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(
+    humaniseError(initialError),
+  );
   const {
     register,
     handleSubmit,

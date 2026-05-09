@@ -61,12 +61,21 @@ export default async function AssessmentResponsesPage({
             {rows.length} total · pass threshold {assessment.passThreshold}%
           </p>
         </div>
-        <Link
-          href={`/admin/assessments/${assessment.id}/edit`}
-          className="inline-flex h-10 items-center rounded-xl border border-border bg-background px-4 text-sm hover:border-etc-marigold"
-        >
-          ← Edit assessment
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <a
+            href={`/api/admin/assessments/${assessment.id}/responses/export`}
+            className="inline-flex h-10 items-center rounded-xl border border-border bg-background px-4 text-sm font-medium hover:border-etc-marigold"
+            download
+          >
+            Export CSV
+          </a>
+          <Link
+            href={`/admin/assessments/${assessment.id}/edit`}
+            className="inline-flex h-10 items-center rounded-xl border border-border bg-background px-4 text-sm hover:border-etc-marigold"
+          >
+            ← Edit assessment
+          </Link>
+        </div>
       </div>
 
       <div className="mt-8">

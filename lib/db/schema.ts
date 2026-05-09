@@ -47,6 +47,7 @@ export const responseStatusEnum = pgEnum("response_status", [
   "submitted",
   "abandoned",
 ]);
+export const adminRoleEnum = pgEnum("admin_role", ["superadmin", "admin"]);
 
 /* ---------- jsonb shapes ---------- */
 
@@ -240,6 +241,26 @@ export const answersRelations = relations(answers, ({ one }) => ({
   }),
 }));
 
+/**
+ * admin_users — allowlist of emails that may sign in to /admin.
+ *
+ * Bootstrap row: ugo@energytalentco.com with role='superadmin'.
+ * Anyone not in this table is rejected at /admin/auth-callback (signed out
+ * + redirected to /admin/login?error=not_authorized).
+ *
+ * Only `superadmin` rows can invite or remove other admin_users.
+ */
+export const adminUsers = pgTable("admin_users", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: text("email").notNull().unique(),
+  role: adminRoleEnum("role").notNull().default("admin"),
+  // Self-FK: who invited them. Nullable so the bootstrap row has no inviter.
+  invitedBy: uuid("invited_by"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 /* ---------- Inferred row types (use these in app code) ---------- */
 
 export type Assessment = typeof assessments.$inferSelect;
@@ -252,3 +273,5 @@ export type Response = typeof responses.$inferSelect;
 export type NewResponse = typeof responses.$inferInsert;
 export type Answer = typeof answers.$inferSelect;
 export type NewAnswer = typeof answers.$inferInsert;
+export type AdminUser = typeof adminUsers.$inferSelect;
+export type NewAdminUser = typeof adminUsers.$inferInsert;

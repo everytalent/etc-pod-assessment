@@ -1,9 +1,8 @@
 /**
  * Admin login — magic-link form.
  *
- * Server Component shell + client form. The form calls Supabase
- * signInWithOtp directly (browser SDK), which emails a code-exchange link
- * back to /admin/auth-callback. We redirect to ?next= afterwards.
+ * If the user lands here with `?error=not_authorized`, the auth-callback
+ * rejected them because their email isn't in admin_users.
  */
 
 import { redirect } from "next/navigation";
@@ -14,16 +13,16 @@ import { getAdminUser } from "@/lib/auth/admin";
 export default async function AdminLoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string }>;
+  searchParams: Promise<{ next?: string; error?: string }>;
 }) {
   const user = await getAdminUser();
-  const { next } = await searchParams;
+  const { next, error } = await searchParams;
   if (user) {
     redirect(next ?? "/admin");
   }
   return (
     <main className="mx-auto flex min-h-dvh max-w-md items-center justify-center px-6 py-10">
-      <LoginForm next={next ?? "/admin"} />
+      <LoginForm next={next ?? "/admin"} initialError={error ?? null} />
     </main>
   );
 }
