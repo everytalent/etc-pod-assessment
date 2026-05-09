@@ -124,13 +124,11 @@ export function QuestionEditorModal({
     }
   }, [timerEnabled, setValue, getValues]);
 
-  // Open-ended questions don't use negativePoints (no auto-scoring) and
-  // don't need options/correctAnswer. Reset those silently so the schema
-  // doesn't reject a save with stale invalid leftovers from a prior type.
+  // Switching to open clears the option-related fields (they're hidden
+  // and unused for open-ended). negativePoints stays — the admin uses it
+  // during manual scoring to set the lower bound on awardable points.
   useEffect(() => {
     if (type === "open") {
-      if (getValues("negativePoints") !== 0) setValue("negativePoints", 0);
-      // Clear any stale option / correct-answer bookkeeping.
       if (getValues("options").length !== 0) setValue("options", []);
       if (getValues("correctAnswer").length !== 0) setValue("correctAnswer", []);
     }
@@ -239,10 +237,12 @@ export function QuestionEditorModal({
               </p>
               <p className="mt-2 text-xs text-foreground">
                 Candidate sees a voice recorder by default with a &ldquo;Type
-                instead&rdquo; toggle. Both responses are reviewed manually:
-                <strong> score_awarded starts at 0</strong> and you assign points
-                from the response drill-in. <strong>Points</strong> below is the
-                maximum you can award; negative_points is unused.
+                instead&rdquo; toggle. Both responses are reviewed manually
+                today: <strong>score_awarded starts at 0</strong>, you assign
+                points from the response drill-in (capped at <strong>Points</strong>{" "}
+                below). <strong>Deduction on wrong</strong> is currently
+                inactive for manual review &mdash; it&rsquo;s stored on the
+                question for the upcoming AI auto-scoring phase.
               </p>
             </div>
           )}
@@ -310,14 +310,10 @@ export function QuestionEditorModal({
             </div>
           )}
 
-          <div
-            className={cn(
-              "grid gap-4",
-              type === "open" ? "grid-cols-1" : "grid-cols-2",
-            )}
-          >
+          <div className="grid grid-cols-2 gap-4">
             <FieldRow
-              label={type === "open" ? "Max points (you assign during review)" : "Points"}
+              label={type === "open" ? "Max points (you award during review)" : "Points"}
+              hint={type === "open" ? "Highest score you can give this answer." : undefined}
               error={errors.points?.message}
             >
               <input
@@ -327,22 +323,22 @@ export function QuestionEditorModal({
                 className={fieldInputClass}
               />
             </FieldRow>
-            {/* Penalty only applies to auto-scored types. Open-ended is
-                manually graded so there's nothing to deduct. */}
-            {type !== "open" && (
-              <FieldRow
-                label="Deduction on wrong (points)"
-                hint="Positive number — subtracted on a wrong answer."
-                error={errors.negativePoints?.message}
-              >
-                <input
-                  type="number"
-                  min={0}
-                  {...register("negativePoints", { valueAsNumber: true })}
-                  className={fieldInputClass}
-                />
-              </FieldRow>
-            )}
+            <FieldRow
+              label="Deduction on wrong (points)"
+              hint={
+                type === "open"
+                  ? "Positive number. Subtracted if you score this answer as wrong during review."
+                  : "Positive number — subtracted on a wrong answer."
+              }
+              error={errors.negativePoints?.message}
+            >
+              <input
+                type="number"
+                min={0}
+                {...register("negativePoints", { valueAsNumber: true })}
+                className={fieldInputClass}
+              />
+            </FieldRow>
           </div>
 
           <div className="rounded-xl border border-border bg-background/40 p-4">

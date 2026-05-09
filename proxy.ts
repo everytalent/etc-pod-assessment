@@ -50,8 +50,16 @@ export async function proxy(request: NextRequest) {
       url.pathname = "/admin";
       return NextResponse.redirect(url);
     }
-    // Anything else (e.g. /assess/...) shouldn't exist on admin host.
-    return new NextResponse("Not found", { status: 404 });
+    // Admin Preview button opens /assess/<slug>?preview=true on the admin
+    // host so the admin's auth cookie travels and the preview check passes.
+    // Allow that one combo through; everything else /assess/* on admin
+    // host is rejected.
+    const isPreview =
+      path.startsWith("/assess/") &&
+      request.nextUrl.searchParams.get("preview") === "true";
+    if (!isPreview) {
+      return new NextResponse("Not found", { status: 404 });
+    }
   }
   if (onCandidateHost && adminPath) {
     return new NextResponse("Not found", { status: 404 });
