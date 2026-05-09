@@ -79,6 +79,8 @@ export type ResponseMetadata = {
    * cross-check the client-reported value (PRD §5.2).
    */
   last_question_shown_at?: string;
+  /** Set true on responses started from admin preview mode (PRD §5.5). */
+  preview?: boolean;
 };
 
 /* ---------- Tables ---------- */

@@ -9,11 +9,12 @@
  * Resume-on-refresh and answer submission live in sibling routes.
  */
 
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { ZodError } from "zod";
 
+import { getAdminSession } from "@/lib/auth/admin";
 import { db } from "@/lib/db/client";
 import { responses, type ResponseMetadata } from "@/lib/db/schema";
 import { getNextQuestion } from "@/lib/assessment/engine";
@@ -43,11 +44,25 @@ export async function POST(req: Request) {
   }
 
   const assessment = await getAssessmentBySlug(input.slug);
-  if (!assessment || assessment.status !== "published") {
+  if (!assessment) {
     return NextResponse.json(
       { error: "assessment_not_available" },
       { status: 404 },
     );
+  }
+  if (assessment.status !== "published") {
+    // Admin preview path: a logged-in admin walking through a draft
+    // assessment can start a session even though it isn't published.
+    // Requires BOTH the etc_preview cookie AND a valid admin session.
+    const cookieStore = await cookies();
+    const previewCookie = cookieStore.get("etc_preview")?.value;
+    const adminSession = previewCookie === "1" ? await getAdminSession() : null;
+    if (!adminSession) {
+      return NextResponse.json(
+        { error: "assessment_not_available" },
+        { status: 404 },
+      );
+    }
   }
 
   const headerStore = await headers();
@@ -57,6 +72,11 @@ export async function POST(req: Request) {
   const ipHash = ip
     ? createHash("sha256").update(ip).digest("hex").slice(0, 32)
     : undefined;
+
+  // Mark preview-mode sessions so admin views can filter them out.
+  const cookieStoreForPreview = await cookies();
+  const isPreviewSession =
+    cookieStoreForPreview.get("etc_preview")?.value === "1";
 
   const [created] = await db
     .insert(responses)
@@ -73,6 +93,7 @@ export async function POST(req: Request) {
         // Server-truth timestamp for the timer (PRD §5.2). Persisted as ISO
         // string inside metadata; route handlers read it on answer submit.
         last_question_shown_at: new Date().toISOString(),
+        preview: isPreviewSession || undefined,
       } satisfies ResponseMetadata,
     })
     .returning({ id: responses.id });
