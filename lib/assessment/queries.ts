@@ -92,16 +92,19 @@ export async function getAssessmentBySlug(
 }
 
 /**
- * Total time budget for an assessment, in minutes. Sums the per-question
- * timeLimitSeconds for timed questions and applies a 30 s / question
- * fallback for un-timed ones (MCQ default reading time). This is the
- * UPPER BOUND — most candidates finish faster — but it's the number we
- * commit to on the intake page so people know what they're signing up
- * for. Returns at least 1.
+ * Realistic time-to-complete range for an assessment, in minutes.
+ *
+ * We deliberately do NOT show the worst-case sum of every timer because
+ * (a) candidates rarely use the full per-question allowance and (b) a
+ * visible 53-minute ceiling lets a candidate plan to drag every timer
+ * to make follow-up scheming or answer searching easier. Instead we
+ * show a tighter range based on typical pacing — 40% of max on the low
+ * end, 65% on the high end. For Renewvia (53 min ceiling) that lands
+ * at ~21–34 min, which matches observed completion times.
  */
-export async function getAssessmentTimeBudgetMinutes(
+export async function getAssessmentTimeRange(
   assessmentId: string,
-): Promise<number> {
+): Promise<{ lowMinutes: number; highMinutes: number }> {
   const rows = await db
     .select({
       timerEnabled: questions.timerEnabled,
@@ -109,12 +112,71 @@ export async function getAssessmentTimeBudgetMinutes(
     })
     .from(questions)
     .where(eq(questions.assessmentId, assessmentId));
-  if (rows.length === 0) return 1;
-  const total = rows.reduce((acc, q) => {
+  if (rows.length === 0) return { lowMinutes: 1, highMinutes: 1 };
+  const totalSeconds = rows.reduce((acc, q) => {
     if (q.timerEnabled && q.timeLimitSeconds) return acc + q.timeLimitSeconds;
     return acc + 30;
   }, 0);
-  return Math.max(1, Math.ceil(total / 60));
+  const lowMinutes = Math.max(1, Math.round((totalSeconds * 0.4) / 60));
+  const highMinutes = Math.max(
+    lowMinutes + 5,
+    Math.round((totalSeconds * 0.65) / 60),
+  );
+  return { lowMinutes, highMinutes };
+}
+
+/**
+ * Past answers on this response, joined with their questions and shaped
+ * into the candidate-facing locked-bubble entry shape. Used to resume
+ * the chat history after a refresh — without this, the bubbles above
+ * the active question disappear and the progress bar reads from the
+ * wrong base.
+ */
+export type ResumedHistoryEntry = {
+  questionId: string;
+  questionText: string;
+  selectedOptions: string[];
+  selectedLabel: string | null;
+  textResponse: string | null;
+  audioPath: string | null;
+  scoreDelta: number;
+};
+
+export async function getAnsweredHistory(
+  responseId: string,
+): Promise<ResumedHistoryEntry[]> {
+  const rows = await db
+    .select({
+      questionId: answers.questionId,
+      questionText: questions.questionText,
+      questionType: questions.type,
+      options: questions.options,
+      selectedOptions: answers.selectedOptions,
+      textResponse: answers.textResponse,
+      audioPath: answers.audioPath,
+      scoreAwarded: answers.scoreAwarded,
+      answeredAt: answers.answeredAt,
+    })
+    .from(answers)
+    .innerJoin(questions, eq(questions.id, answers.questionId))
+    .where(eq(answers.responseId, responseId))
+    .orderBy(answers.answeredAt);
+  return rows.map((r) => ({
+    questionId: r.questionId,
+    questionText: r.questionText,
+    selectedOptions: r.selectedOptions,
+    selectedLabel:
+      r.questionType === "open"
+        ? null
+        : r.selectedOptions
+            .map(
+              (id) => r.options.find((o) => o.id === id)?.label ?? id,
+            )
+            .join(", ") || null,
+    textResponse: r.textResponse,
+    audioPath: r.audioPath,
+    scoreDelta: r.scoreAwarded,
+  }));
 }
 
 /** Running total = sum of answers.score_awarded so far. */

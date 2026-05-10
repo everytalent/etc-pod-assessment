@@ -58,6 +58,8 @@ export type CandidateSessionState = {
     slug: string;
     question: CandidateQuestion | null;
     score: number;
+    /** Past Q&A entries hydrated from the server on resume. */
+    history?: AnsweredEntry[];
   }) => void;
 
   /** Submit the current question's answer. Caller picks one shape per type. */
@@ -84,13 +86,15 @@ export const useCandidateSession = create<CandidateSessionState>((set, get) => (
   questionShownAt: 0,
   errorMessage: null,
 
-  init: ({ responseId, slug, question, score }) => {
+  init: ({ responseId, slug, question, score, history }) => {
     set({
       responseId,
       assessmentSlug: slug,
       currentQuestion: question,
       scoreSoFar: score,
-      history: [],
+      // Hydrate locked-bubble history from the server on resume so the
+      // candidate doesn't see their progress vanish after a refresh.
+      history: history ?? [],
       isSubmitting: false,
       isComplete: question === null,
       questionShownAt: nowMs(),

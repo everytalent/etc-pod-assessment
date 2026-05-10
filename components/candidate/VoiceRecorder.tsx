@@ -119,12 +119,22 @@ export function VoiceRecorder({
         }
       }, 250);
     } catch (err) {
-      const msg =
-        err instanceof DOMException && err.name === "NotAllowedError"
-          ? "Microphone permission denied. Use 'Type instead' or grant access in your browser."
-          : err instanceof Error
-            ? err.message
-            : "Couldn't start recording.";
+      const isIOS =
+        typeof navigator !== "undefined" &&
+        /iPad|iPhone|iPod/.test(navigator.userAgent);
+      let msg: string;
+      if (err instanceof DOMException && err.name === "NotAllowedError") {
+        msg = isIOS
+          ? "Microphone access blocked. Tap the 'aA' button in Safari's address bar → Website Settings → Microphone → Allow, then reload. Or use 'Type instead'."
+          : "Microphone access blocked. Click the lock icon in your browser's address bar, allow microphone, then reload. Or use 'Type instead'.";
+      } else if (
+        err instanceof DOMException &&
+        err.name === "NotFoundError"
+      ) {
+        msg = "No microphone detected on this device. Use 'Type instead'.";
+      } else {
+        msg = err instanceof Error ? err.message : "Couldn't start recording.";
+      }
       setError(msg);
       setPhase("error");
     }

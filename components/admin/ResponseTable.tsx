@@ -337,7 +337,14 @@ export function ResponseTable({
       {activeId && !selectMode && (
         <ResponseDrillIn
           responseId={activeId}
-          onClose={() => setActiveId(null)}
+          onClose={() => {
+            setActiveId(null);
+            // Pull fresh totals into the table after the drill-in closes
+            // — without this the list shows the score from the initial
+            // server render, even though manual / AI scoring inside the
+            // drill-in already updated responses.totalScore in the DB.
+            router.refresh();
+          }}
         />
       )}
     </>

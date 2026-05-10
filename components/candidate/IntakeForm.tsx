@@ -36,10 +36,10 @@ type Props = {
   slug: string;
   title: string;
   introText: string;
-  estimatedMinutes: number;
+  timeRange: { lowMinutes: number; highMinutes: number };
 };
 
-export function IntakeForm({ slug, title, introText, estimatedMinutes }: Props) {
+export function IntakeForm({ slug, title, introText, timeRange }: Props) {
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -104,9 +104,16 @@ export function IntakeForm({ slug, title, introText, estimatedMinutes }: Props) 
         </p>
       )}
 
-      <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-etc-marigold bg-etc-marigold/10 px-3 py-1 text-[0.7rem] font-medium text-etc-black">
-        <span aria-hidden>⏱</span>
-        Plan around <strong>~{estimatedMinutes} min</strong> to finish — that&rsquo;s the longest case if you use every timer in full.
+      <div className="mt-5 rounded-2xl border-2 border-etc-marigold bg-etc-marigold/15 p-4">
+        <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-etc-black">
+          <span aria-hidden>⏱</span> Time to complete
+        </p>
+        <p className="mt-1 text-lg font-bold text-etc-black">
+          Most people finish in {timeRange.lowMinutes}&ndash;{timeRange.highMinutes} minutes
+        </p>
+        <p className="mt-1 text-[0.7rem] text-etc-black/80">
+          Each question has its own short timer — stay focused and you&rsquo;ll move through quickly.
+        </p>
       </div>
 
       <ul className="mt-4 space-y-1.5 text-xs text-muted-foreground">

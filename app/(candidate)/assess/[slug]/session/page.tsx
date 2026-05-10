@@ -16,6 +16,7 @@ import {
   getNextQuestion,
 } from "@/lib/assessment/engine";
 import {
+  getAnsweredHistory,
   getCandidateQuestion,
   getRunningScore,
 } from "@/lib/assessment/queries";
@@ -59,13 +60,14 @@ export default async function AssessSessionPage({
     redirect(`/assess/${slug}/done`);
   }
 
-  const [question, score, totalRows] = await Promise.all([
+  const [question, score, totalRows, history] = await Promise.all([
     getCandidateQuestion(next.questionId),
     getRunningScore(responseId),
     db
       .select({ id: questions.id })
       .from(questions)
       .where(eq(questions.assessmentId, row.assessmentId)),
+    getAnsweredHistory(responseId),
   ]);
 
   return (
@@ -76,6 +78,7 @@ export default async function AssessSessionPage({
         question,
         score,
         totalQuestions: totalRows.length,
+        history,
       }}
     />
   );

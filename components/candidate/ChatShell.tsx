@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 
 import type { CandidateQuestion } from "@/lib/assessment/validators";
+import type { ResumedHistoryEntry } from "@/lib/assessment/queries";
 import { useCandidateSession } from "@/lib/state/candidate-session";
 
 import { AnswerInput } from "./AnswerInput";
@@ -29,6 +30,7 @@ export type ChatShellInitial = {
   question: CandidateQuestion | null;
   score: number;
   totalQuestions: number;
+  history: ResumedHistoryEntry[];
 };
 
 export function ChatShell({ initial }: { initial: ChatShellInitial }) {
@@ -50,8 +52,16 @@ export function ChatShell({ initial }: { initial: ChatShellInitial }) {
       slug: initial.slug,
       question: initial.question,
       score: initial.score,
+      history: initial.history,
     });
-  }, [init, initial.responseId, initial.slug, initial.question, initial.score]);
+  }, [
+    init,
+    initial.responseId,
+    initial.slug,
+    initial.question,
+    initial.score,
+    initial.history,
+  ]);
 
   useEffect(() => {
     if (isComplete) {

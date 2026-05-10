@@ -15,7 +15,7 @@ import { db } from "@/lib/db/client";
 import { responses } from "@/lib/db/schema";
 import {
   getAssessmentBySlug,
-  getAssessmentTimeBudgetMinutes,
+  getAssessmentTimeRange,
 } from "@/lib/assessment/queries";
 import { getCandidateSession } from "@/lib/session";
 
@@ -88,7 +88,7 @@ export default async function AssessIntakePage({
         slug={slug}
         title={assessment.title}
         introText={assessment.introText}
-        estimatedMinutes={await getAssessmentTimeBudgetMinutes(assessment.id)}
+        timeRange={await getAssessmentTimeRange(assessment.id)}
       />
     </main>
   );
