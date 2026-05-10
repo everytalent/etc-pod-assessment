@@ -29,6 +29,20 @@ export const assessmentStatusEnum = pgEnum("assessment_status", [
   "published",
   "archived",
 ]);
+/**
+ * Assessment visibility — controls whether the assessment surfaces on the
+ * candidate-facing public listing page.
+ *
+ *   listed   — visible on assess.energytalentco.com when status='published'.
+ *   unlisted — accessible only via direct link; never appears on listings.
+ *
+ * Independent from `status`: a draft can be unlisted (it's not published
+ * either way) but visibility only matters once status='published'.
+ */
+export const assessmentVisibilityEnum = pgEnum("assessment_visibility", [
+  "listed",
+  "unlisted",
+]);
 export const questionTypeEnum = pgEnum("question_type", [
   "mcq",
   "true_false",
@@ -103,6 +117,9 @@ export const assessments = pgTable("assessments", {
   slug: text("slug").notNull().unique(),
   roleType: roleTypeEnum("role_type").notNull(),
   status: assessmentStatusEnum("status").notNull().default("draft"),
+  visibility: assessmentVisibilityEnum("visibility")
+    .notNull()
+    .default("listed"),
   passThreshold: integer("pass_threshold").notNull().default(70),
   introText: text("intro_text").notNull().default(""),
   outroText: text("outro_text").notNull().default(""),

@@ -27,6 +27,7 @@ export function NewAssessmentForm() {
       slug: "",
       roleType: "tech",
       status: "draft",
+      visibility: "listed",
       passThreshold: 70,
       introText: "",
       outroText: "",

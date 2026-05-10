@@ -119,6 +119,35 @@ export function AssessmentBuilder({ initial }: Props) {
 
   const handleRulesChanged = (next: BranchingRule[]) => setRules(next);
 
+  const onDeleteAssessment = async () => {
+    if (
+      !confirm(
+        `Delete the assessment "${assessment.title}"? This cascades to questions, branching rules, and all candidate responses + answers. Cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    if (
+      !confirm(
+        "One more confirmation — type the slug to delete is the next step in a more careful flow. For now: this is your last chance. Continue?",
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/admin/assessments/${assessment.id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `Failed (${res.status})`);
+      }
+      router.push("/admin");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Delete failed");
+    }
+  };
+
   return (
     <>
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -148,6 +177,13 @@ export function AssessmentBuilder({ initial }: Props) {
           >
             Preview ↗
           </Link>
+          <button
+            type="button"
+            onClick={() => void onDeleteAssessment()}
+            className="inline-flex h-10 items-center rounded-xl border border-border bg-background px-4 text-sm font-medium text-destructive hover:border-destructive"
+          >
+            Delete assessment
+          </button>
         </div>
       </div>
 

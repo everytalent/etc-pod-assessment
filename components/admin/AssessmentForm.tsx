@@ -40,6 +40,7 @@ export function AssessmentForm({ assessment, onSaved }: Props) {
       slug: assessment.slug,
       roleType: assessment.roleType,
       status: assessment.status,
+      visibility: assessment.visibility,
       passThreshold: assessment.passThreshold,
       introText: assessment.introText,
       outroText: assessment.outroText,
@@ -107,6 +108,17 @@ export function AssessmentForm({ assessment, onSaved }: Props) {
           </select>
         </FieldRow>
       </div>
+
+      <FieldRow
+        label="Visibility"
+        hint="Listed = appears on the public landing once published. Unlisted = link-only access (still works at /assess/<slug> but not browsable)."
+        error={errors.visibility?.message}
+      >
+        <select {...register("visibility")} className={fieldInputClass}>
+          <option value="listed">Listed (public)</option>
+          <option value="unlisted">Unlisted (link-only)</option>
+        </select>
+      </FieldRow>
 
       <FieldRow label="Intro text" error={errors.introText?.message}>
         <textarea

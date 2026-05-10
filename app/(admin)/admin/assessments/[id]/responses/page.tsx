@@ -11,6 +11,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { ResponseTable } from "@/components/admin/ResponseTable";
+import { ZohoExportButton } from "@/components/admin/ZohoExportButton";
 import { CAN, getAdminSession } from "@/lib/auth/admin";
 import { db } from "@/lib/db/client";
 import { answers, assessments, responses } from "@/lib/db/schema";
@@ -100,13 +101,16 @@ export default async function AssessmentResponsesPage({
             {includePreview ? "Hide previews" : "Show previews"}
           </Link>
           {canExport && (
-            <a
-              href={`/api/admin/assessments/${assessment.id}/responses/export`}
-              className="inline-flex h-10 items-center rounded-xl border border-border bg-background px-4 text-sm font-medium hover:border-etc-marigold"
-              download
-            >
-              Export CSV
-            </a>
+            <>
+              <a
+                href={`/api/admin/assessments/${assessment.id}/responses/export`}
+                className="inline-flex h-10 items-center rounded-xl border border-border bg-background px-4 text-sm font-medium hover:border-etc-marigold"
+                download
+              >
+                Export CSV
+              </a>
+              <ZohoExportButton assessmentId={assessment.id} />
+            </>
           )}
           <Link
             href={`/admin/assessments/${assessment.id}/edit`}

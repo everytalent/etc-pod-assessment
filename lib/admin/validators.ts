@@ -27,6 +27,7 @@ export const upsertAssessmentSchema = z.object({
     .regex(slugRegex, "lower-kebab only"),
   roleType: z.enum(["tech", "bd"]),
   status: z.enum(["draft", "published", "archived"]),
+  visibility: z.enum(["listed", "unlisted"]),
   passThreshold: z.number().int().min(0).max(100),
   // Required strings (empty allowed). RHF supplies "" via defaultValues —
   // we don't use .default(...) here because it makes the input type optional
