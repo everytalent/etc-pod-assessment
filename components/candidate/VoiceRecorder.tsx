@@ -119,14 +119,9 @@ export function VoiceRecorder({
         }
       }, 250);
     } catch (err) {
-      const isIOS =
-        typeof navigator !== "undefined" &&
-        /iPad|iPhone|iPod/.test(navigator.userAgent);
       let msg: string;
       if (err instanceof DOMException && err.name === "NotAllowedError") {
-        msg = isIOS
-          ? "Microphone access blocked. Tap the 'aA' button in Safari's address bar → Website Settings → Microphone → Allow, then reload. Or use 'Type instead'."
-          : "Microphone access blocked. Click the lock icon in your browser's address bar, allow microphone, then reload. Or use 'Type instead'.";
+        msg = micDeniedMessage();
       } else if (
         err instanceof DOMException &&
         err.name === "NotFoundError"
@@ -349,4 +344,40 @@ function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/**
+ * Browser-aware message for NotAllowedError. The "aA in Safari" copy
+ * only helps if the user is actually in Safari — Chrome users won't
+ * see that button. Detect the four common cases:
+ *
+ *   - iOS Chrome (CriOS): lock icon in Chrome's omnibox, fallback to
+ *     iOS Settings → Chrome → Microphone.
+ *   - iOS Safari: the "aA" button → Website Settings → Microphone.
+ *   - Android Chrome / Edge: lock icon → Permissions → Microphone.
+ *   - Desktop Chromium / Firefox: lock icon in the address bar.
+ *
+ * Any unknown user-agent falls back to a generic "open your browser's
+ * site settings" message.
+ */
+function micDeniedMessage(): string {
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  const isIOS = /iPad|iPhone|iPod/.test(ua);
+  const isCrIOS = /CriOS/.test(ua); // Chrome on iOS
+  const isAndroid = /Android/.test(ua);
+  const isChromium = /Chrome|CriOS|Edg/.test(ua);
+
+  if (isIOS && isCrIOS) {
+    return "Microphone is blocked in Chrome. Tap the lock icon in the address bar and switch Microphone on. If you don't see it, open iPhone Settings → Chrome → Microphone, then reload this page. Or use 'Type instead'.";
+  }
+  if (isIOS) {
+    return "Microphone is blocked. Tap the 'aA' button in Safari's address bar → Website Settings → Microphone → Allow, then reload. Or use 'Type instead'.";
+  }
+  if (isAndroid) {
+    return "Microphone is blocked. Tap the lock icon next to the page URL → Permissions → Microphone → Allow, then reload. Or use 'Type instead'.";
+  }
+  if (isChromium) {
+    return "Microphone is blocked. Click the lock or camera icon in your browser's address bar, set Microphone to Allow, then reload. Or use 'Type instead'.";
+  }
+  return "Microphone access is blocked. Open your browser's site settings for this page and allow microphone, then reload. Or use 'Type instead'.";
 }
