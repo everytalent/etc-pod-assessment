@@ -30,7 +30,7 @@ function getApiKey(): string {
   return key;
 }
 
-async function callKimi(prompt: string): Promise<string> {
+async function callKimiOnce(prompt: string): Promise<string> {
   const model = process.env.KIMI_MODEL ?? DEFAULT_MODEL;
   const res = await fetch(KIMI_ENDPOINT, {
     method: "POST",
@@ -50,7 +50,11 @@ async function callKimi(prompt: string): Promise<string> {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(humaniseKimiError(res.status, text));
+    const err = new Error(humaniseKimiError(res.status, text)) as Error & {
+      status?: number;
+    };
+    err.status = res.status;
+    throw err;
   }
   const data = (await res.json()) as KimiResponse;
   if (data.error) {
@@ -59,6 +63,33 @@ async function callKimi(prompt: string): Promise<string> {
   const content = data.choices?.[0]?.message?.content;
   if (!content) throw new Error("Kimi returned no content.");
   return content;
+}
+
+/**
+ * Wraps callKimiOnce with up to two retries on transient failures (5xx,
+ * 429, intermittent 404s — Moonshot has been observed to flake the
+ * occasional model lookup under load). Auth errors (401/403) and bad
+ * input (400) are surfaced immediately — retrying won't help.
+ */
+async function callKimi(prompt: string): Promise<string> {
+  const MAX_ATTEMPTS = 3;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      return await callKimiOnce(prompt);
+    } catch (err) {
+      lastErr = err;
+      const status = (err as { status?: number }).status;
+      const transient =
+        status === 429 ||
+        status === 404 ||
+        (typeof status === "number" && status >= 500);
+      if (!transient || attempt === MAX_ATTEMPTS) throw err;
+      // Exponential backoff: 400 ms, 1200 ms.
+      await new Promise((r) => setTimeout(r, 400 * attempt ** 2));
+    }
+  }
+  throw lastErr;
 }
 
 function humaniseKimiError(status: number, body: string): string {
