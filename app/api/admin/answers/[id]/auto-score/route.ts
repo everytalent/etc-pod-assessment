@@ -18,6 +18,7 @@ import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { requireEditorApi } from "@/lib/auth/admin";
+import { canRunAiPipeline } from "@/lib/auth/feature-flags";
 import { scoreOpenEnded } from "@/lib/ai/gemini";
 import { db } from "@/lib/db/client";
 import { answers, questions } from "@/lib/db/schema";
@@ -28,6 +29,16 @@ export async function POST(
 ) {
   const auth = await requireEditorApi();
   if (!auth.user) return auth.unauthorized;
+  if (!canRunAiPipeline(auth.session.admin.role)) {
+    return NextResponse.json(
+      {
+        error: "ai_pipeline_disabled",
+        message:
+          "AI scoring isn't available for your role yet. Ask a super admin if you should have access.",
+      },
+      { status: 403 },
+    );
+  }
   const { id } = await params;
 
   const [row] = await db

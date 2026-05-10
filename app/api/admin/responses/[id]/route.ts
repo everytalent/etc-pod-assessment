@@ -11,10 +11,12 @@ import { asc, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { requireAdminApi, requireEditorApi } from "@/lib/auth/admin";
+import { canRunAiPipeline, canSeeAiScores } from "@/lib/auth/feature-flags";
 import { db } from "@/lib/db/client";
 import {
   type AiScore,
   type AiScoreProvider,
+  adminUsers,
   aiScores,
   answers,
   questions,
@@ -81,12 +83,42 @@ export async function GET(
     bucket[row.provider] = row;
     aiByAnswer.set(row.answerId, bucket);
   }
+
+  // Attribute each scored answer to the person who saved it. Looking up
+  // every scoredBy uuid in one round-trip and then mapping in memory.
+  const scorerIds = Array.from(
+    new Set(answerRows.map((r) => r.scoredBy).filter((v): v is string => Boolean(v))),
+  );
+  const scorerRows = scorerIds.length
+    ? await db
+        .select({
+          id: adminUsers.id,
+          email: adminUsers.email,
+          role: adminUsers.role,
+        })
+        .from(adminUsers)
+        .where(inArray(adminUsers.id, scorerIds))
+    : [];
+  const scorerById = new Map(scorerRows.map((s) => [s.id, s]));
+
+  const role = auth.session.admin.role;
   const enrichedAnswers = answerRows.map((r) => ({
     ...r,
     aiScores: aiByAnswer.get(r.answerId) ?? {},
+    scorer: r.scoredBy ? (scorerById.get(r.scoredBy) ?? null) : null,
+    // Per-answer flag because assessors only see AI after their own score.
+    canSeeAi: canSeeAiScores({ role, hasOwnScore: Boolean(r.scoredAt) }),
   }));
 
-  return NextResponse.json({ response, answers: enrichedAnswers });
+  return NextResponse.json({
+    response,
+    answers: enrichedAnswers,
+    viewer: {
+      role,
+      email: auth.session.email,
+      canRunAiPipeline: canRunAiPipeline(role),
+    },
+  });
 }
 
 /**

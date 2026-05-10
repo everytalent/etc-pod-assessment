@@ -25,6 +25,10 @@ type PersistedAiScore = {
   createdAt: string;
 };
 
+type AdminRoleClient = "superadmin" | "admin" | "editor" | "assessor";
+
+type Scorer = { id: string; email: string; role: AdminRoleClient } | null;
+
 type AnswerRow = {
   answerId: string;
   questionId: string;
@@ -35,6 +39,9 @@ type AnswerRow = {
   transcript: string | null;
   scoringRubric: string | null;
   aiScores: Partial<Record<"gemini" | "kimi", PersistedAiScore>>;
+  scorer: Scorer;
+  /** Server-evaluated: should this viewer see AI panels for this answer? */
+  canSeeAi: boolean;
   scoredBy: string | null;
   scoredAt: string | null;
   timeSpentSeconds: number;
@@ -54,6 +61,11 @@ type AnswerRow = {
 type Detail = {
   response: Response;
   answers: AnswerRow[];
+  viewer: {
+    role: AdminRoleClient;
+    email: string;
+    canRunAiPipeline: boolean;
+  };
 };
 
 export function ResponseDrillIn({
@@ -82,6 +94,51 @@ export function ResponseDrillIn({
       }
     | { phase: "error"; message: string }
   >({ phase: "idle" });
+
+  const [bulkAccept, setBulkAccept] = useState<
+    | { phase: "idle" }
+    | { phase: "running" }
+    | {
+        phase: "done";
+        result: { accepted: number; skipped: number; provider: string };
+      }
+    | { phase: "error"; message: string }
+  >({ phase: "idle" });
+
+  const runBulkAccept = async () => {
+    if (
+      !confirm(
+        "Apply every AI suggestion as the human score for this response? You can still tweak any individual answer afterwards.",
+      )
+    ) {
+      return;
+    }
+    setBulkAccept({ phase: "running" });
+    try {
+      const res = await fetch(
+        `/api/admin/responses/${responseId}/accept-ai-scores`,
+        { method: "POST", headers: { "Content-Type": "application/json" } },
+      );
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!res.ok) {
+        throw new Error(
+          (body.message as string) ??
+            (body.error as string) ??
+            `failed (${res.status})`,
+        );
+      }
+      setBulkAccept({
+        phase: "done",
+        result: body as { accepted: number; skipped: number; provider: string },
+      });
+      setReload((r) => r + 1);
+    } catch (err) {
+      setBulkAccept({
+        phase: "error",
+        message: err instanceof Error ? err.message : "Bulk accept failed",
+      });
+    }
+  };
 
   const runPipeline = async () => {
     setPipeline({ phase: "running" });
@@ -215,18 +272,22 @@ export function ResponseDrillIn({
               />
             </dl>
 
-            <CrossCheckPanel
-              consensus={data.response.aiConsensus}
-              ranAt={
-                // JSON serialisation turns timestamptz into ISO strings;
-                // the Drizzle Response type still claims Date, so coerce.
-                data.response.aiPipelineRanAt
-                  ? String(data.response.aiPipelineRanAt)
-                  : null
-              }
-              pipeline={pipeline}
-              onRun={runPipeline}
-            />
+            {data.viewer.canRunAiPipeline && (
+              <CrossCheckPanel
+                consensus={data.response.aiConsensus}
+                ranAt={
+                  // JSON serialisation turns timestamptz into ISO strings;
+                  // the Drizzle Response type still claims Date, so coerce.
+                  data.response.aiPipelineRanAt
+                    ? String(data.response.aiPipelineRanAt)
+                    : null
+                }
+                pipeline={pipeline}
+                bulkAccept={bulkAccept}
+                onRun={runPipeline}
+                onBulkAccept={runBulkAccept}
+              />
+            )}
 
             <h3 className="mt-6 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Path ({data.answers.length} answer{data.answers.length === 1 ? "" : "s"})
@@ -237,6 +298,7 @@ export function ResponseDrillIn({
                   key={a.answerId}
                   index={i}
                   answer={a}
+                  viewerRole={data.viewer.role}
                   onScored={() => setReload((r) => r + 1)}
                 />
               ))}
@@ -253,10 +315,12 @@ export function ResponseDrillIn({
 function AnswerCard({
   index,
   answer,
+  viewerRole,
   onScored,
 }: {
   index: number;
   answer: AnswerRow;
+  viewerRole: AdminRoleClient;
   onScored: () => void;
 }) {
   const isOpen = answer.questionType === "open";
@@ -283,7 +347,11 @@ function AnswerCard({
       </div>
 
       {isOpen && (
-        <OpenEndedReviewBlock answer={answer} onScored={onScored} />
+        <OpenEndedReviewBlock
+          answer={answer}
+          viewerRole={viewerRole}
+          onScored={onScored}
+        />
       )}
     </li>
   );
@@ -293,9 +361,11 @@ function AnswerCard({
 
 function OpenEndedReviewBlock({
   answer,
+  viewerRole,
   onScored,
 }: {
   answer: AnswerRow;
+  viewerRole: AdminRoleClient;
   onScored: () => void;
 }) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -541,7 +611,7 @@ function OpenEndedReviewBlock({
       )}
 
       {/* Persisted AI scores from the cross-check pipeline */}
-      {(answer.aiScores.gemini || answer.aiScores.kimi) && (
+      {answer.canSeeAi && (answer.aiScores.gemini || answer.aiScores.kimi) && (
         <div className="rounded-xl border border-etc-marigold bg-etc-marigold/10 p-3">
           <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-etc-black">
             AI scores from pipeline
@@ -567,8 +637,18 @@ function OpenEndedReviewBlock({
         </div>
       )}
 
+      {/* Assessor pre-grade nudge: panel reveals after they save a score.
+          Only shown for assessors — for other roles where AI is gated off
+          entirely (e.g. admin/editor in month 1), saving doesn't unlock
+          anything, so the message would be misleading. */}
+      {!answer.canSeeAi && viewerRole === "assessor" && answer.scoringRubric && (
+        <div className="rounded-xl border border-dashed border-border bg-background/40 p-3 text-[0.7rem] text-muted-foreground">
+          AI score suggestion will appear here after you save your own score.
+        </div>
+      )}
+
       {/* AI suggestion (ad-hoc, per-answer) */}
-      {answer.scoringRubric && (transcript || answer.textResponse) && (
+      {answer.canSeeAi && answer.scoringRubric && (transcript || answer.textResponse) && (
         <div className="rounded-xl border border-dashed border-etc-marigold bg-etc-marigold/10 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-etc-black">
@@ -664,6 +744,11 @@ function OpenEndedReviewBlock({
         {savedAt && (
           <span className="text-[0.7rem] text-muted-foreground">
             Last scored {new Date(savedAt).toLocaleString()}
+            {answer.scorer && (
+              <>
+                {" "}by <strong>{answer.scorer.email}</strong> ({answer.scorer.role})
+              </>
+            )}
           </span>
         )}
       </div>
@@ -733,18 +818,33 @@ type PipelineState =
     }
   | { phase: "error"; message: string };
 
+type BulkAcceptState =
+  | { phase: "idle" }
+  | { phase: "running" }
+  | {
+      phase: "done";
+      result: { accepted: number; skipped: number; provider: string };
+    }
+  | { phase: "error"; message: string };
+
 function CrossCheckPanel({
   consensus,
   ranAt,
   pipeline,
+  bulkAccept,
   onRun,
+  onBulkAccept,
 }: {
   consensus: "pending" | "gemini_only" | "agree" | "override";
   ranAt: string | null;
   pipeline: PipelineState;
+  bulkAccept: BulkAcceptState;
   onRun: () => void;
+  onBulkAccept: () => void;
 }) {
   const running = pipeline.phase === "running";
+  const accepting = bulkAccept.phase === "running";
+  const canBulkAccept = consensus !== "pending" && !running && !accepting;
   const badge = consensusBadge(consensus);
   return (
     <section className="mt-5 rounded-2xl border border-dashed border-etc-marigold bg-etc-marigold/10 p-4">
@@ -764,14 +864,26 @@ function CrossCheckPanel({
             )}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onRun}
-          disabled={running}
-          className="inline-flex h-9 items-center rounded-xl bg-primary px-4 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
-        >
-          {running ? "Scoring…" : "✨ Run AI scoring"}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          {canBulkAccept && (
+            <button
+              type="button"
+              onClick={onBulkAccept}
+              disabled={accepting}
+              className="inline-flex h-9 items-center rounded-xl border border-border bg-background px-4 text-xs hover:border-etc-marigold disabled:opacity-60"
+            >
+              {accepting ? "Accepting…" : "Accept all AI suggestions"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onRun}
+            disabled={running}
+            className="inline-flex h-9 items-center rounded-xl bg-primary px-4 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
+          >
+            {running ? "Scoring…" : "✨ Run AI scoring"}
+          </button>
+        </div>
       </div>
 
       {pipeline.phase === "done" && (
@@ -811,6 +923,23 @@ function CrossCheckPanel({
       {pipeline.phase === "error" && (
         <p className="mt-3 rounded-lg border border-destructive bg-destructive/10 p-2 text-[0.7rem] text-destructive">
           {pipeline.message}
+        </p>
+      )}
+
+      {bulkAccept.phase === "done" && (
+        <p className="mt-3 text-xs text-foreground">
+          Applied <strong>{bulkAccept.result.accepted}</strong>{" "}
+          {bulkAccept.result.provider} suggestion
+          {bulkAccept.result.accepted === 1 ? "" : "s"}.
+          {bulkAccept.result.skipped > 0 && (
+            <> {bulkAccept.result.skipped} answer(s) had no suggestion and were left as-is.</>
+          )}
+        </p>
+      )}
+
+      {bulkAccept.phase === "error" && (
+        <p className="mt-3 rounded-lg border border-destructive bg-destructive/10 p-2 text-[0.7rem] text-destructive">
+          {bulkAccept.message}
         </p>
       )}
     </section>
