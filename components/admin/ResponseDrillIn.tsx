@@ -198,7 +198,7 @@ export function ResponseDrillIn({
         };
       };
 
-      // 2. Gemini for any answer that doesn't yet have one.
+      // 2. 1st assessor (Gemini) for any answer that doesn't yet have one.
       const geminiSet = new Set(plan.existing.gemini);
       const needsGemini = plan.scorable.filter((a) => !geminiSet.has(a.answerId));
       for (const a of needsGemini) {
@@ -207,14 +207,14 @@ export function ResponseDrillIn({
         setPipeline({
           phase: "running",
           progress: {
-            label: "Gemini",
+            label: "1st assessor",
             done: geminiCount + (geminiSet.size),
             total: plan.scorable.length,
           },
         });
       }
 
-      // 3. Kimi sample of 3 random answers (that Gemini scored OK).
+      // 3. Validation (2nd assessor / Kimi) on a sample of 3 random answers.
       const sampleSize = Math.min(3, plan.scorable.length);
       const sample = pickRandom(plan.scorable, sampleSize);
       for (const a of sample) {
@@ -223,7 +223,7 @@ export function ResponseDrillIn({
         setPipeline({
           phase: "running",
           progress: {
-            label: "Kimi (sample)",
+            label: "Validation sample",
             done: kimiCount,
             total: sampleSize,
           },
@@ -258,7 +258,7 @@ export function ResponseDrillIn({
           setPipeline({
             phase: "running",
             progress: {
-              label: "Kimi (rescoring)",
+              label: "2nd assessor (rescoring)",
               done: kimiCount,
               total: sampleSize + rest.length,
             },
@@ -741,12 +741,12 @@ function OpenEndedReviewBlock({
       {answer.canSeeAi && (answer.aiScores.gemini || answer.aiScores.kimi) && (
         <div className="rounded-xl border border-etc-marigold bg-etc-marigold/10 p-3">
           <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-etc-black">
-            AI scores from pipeline
+            AI assessor scores
           </p>
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
             {answer.aiScores.gemini && (
               <PersistedScoreCard
-                provider="Gemini"
+                provider={providerLabel("gemini")}
                 data={answer.aiScores.gemini}
                 maxPoints={answer.points}
                 onAccept={() => setScore(answer.aiScores.gemini!.score)}
@@ -754,7 +754,7 @@ function OpenEndedReviewBlock({
             )}
             {answer.aiScores.kimi && (
               <PersistedScoreCard
-                provider="Kimi"
+                provider={providerLabel("kimi")}
                 data={answer.aiScores.kimi}
                 maxPoints={answer.points}
                 onAccept={() => setScore(answer.aiScores.kimi!.score)}
@@ -886,6 +886,26 @@ function OpenEndedReviewBlock({
   );
 }
 
+/* ---------- AI provider display labels ---------- */
+
+/**
+ * UI-facing labels for the AI scorers. The DB and API still speak in
+ * 'gemini' / 'kimi' but reviewers see the role they play in the
+ * pipeline — first assessor, validation assessor — with the underlying
+ * model name parenthesised so superadmins can still see what ran.
+ */
+function providerLabel(provider: "gemini" | "kimi" | string): string {
+  if (provider === "gemini") return "1st assessor (Gemini)";
+  if (provider === "kimi") return "2nd assessor (Kimi)";
+  return provider;
+}
+
+function providerShort(provider: "gemini" | "kimi" | string): string {
+  if (provider === "gemini") return "1st assessor";
+  if (provider === "kimi") return "2nd assessor";
+  return provider;
+}
+
 /* ---------- Persisted per-answer AI score card ---------- */
 
 function PersistedScoreCard({
@@ -981,7 +1001,7 @@ function CrossCheckPanel({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-etc-black">
-            AI cross-check
+            AI assessor cross-check
           </p>
           <p className="mt-1 text-sm">
             <span className={cn("inline-flex items-center rounded-md px-2 py-0.5 text-[0.7rem] font-medium", badge.className)}>
@@ -1028,9 +1048,10 @@ function CrossCheckPanel({
       {pipeline.phase === "done" && (
         <div className="mt-3 space-y-1 text-xs text-foreground">
           <p>
-            Gemini scored <strong>{pipeline.result.gemini_scored}</strong>{" "}
-            answer{pipeline.result.gemini_scored === 1 ? "" : "s"}; Kimi scored{" "}
-            <strong>{pipeline.result.kimi_scored}</strong>.
+            1st assessor (Gemini) scored{" "}
+            <strong>{pipeline.result.gemini_scored}</strong>{" "}
+            answer{pipeline.result.gemini_scored === 1 ? "" : "s"}; 2nd assessor
+            (Kimi) scored <strong>{pipeline.result.kimi_scored}</strong>.
             {pipeline.result.sample_diff !== null && (
               <>
                 {" "}Sample mean abs diff:{" "}
@@ -1068,7 +1089,7 @@ function CrossCheckPanel({
       {bulkAccept.phase === "done" && (
         <p className="mt-3 text-xs text-foreground">
           Applied <strong>{bulkAccept.result.accepted}</strong>{" "}
-          {bulkAccept.result.provider} suggestion
+          {providerShort(bulkAccept.result.provider)} suggestion
           {bulkAccept.result.accepted === 1 ? "" : "s"}.
           {bulkAccept.result.skipped > 0 && (
             <> {bulkAccept.result.skipped} answer(s) had no suggestion and were left as-is.</>
@@ -1093,11 +1114,20 @@ function consensusBadge(c: "pending" | "gemini_only" | "agree" | "override"): {
     case "pending":
       return { label: "Not run yet", className: "bg-muted text-muted-foreground" };
     case "gemini_only":
-      return { label: "Gemini scored", className: "bg-etc-marigold/30 text-etc-black" };
+      return {
+        label: "1st assessor scored",
+        className: "bg-etc-marigold/30 text-etc-black",
+      };
     case "agree":
-      return { label: "Kimi agrees · Gemini stands", className: "bg-emerald-100 text-emerald-900" };
+      return {
+        label: "Validation agrees · 1st assessor stands",
+        className: "bg-emerald-100 text-emerald-900",
+      };
     case "override":
-      return { label: "Kimi overrode · using Kimi", className: "bg-amber-100 text-amber-900" };
+      return {
+        label: "Validation overrode · using 2nd assessor",
+        className: "bg-amber-100 text-amber-900",
+      };
   }
 }
 
