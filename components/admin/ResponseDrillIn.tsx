@@ -80,7 +80,10 @@ export function ResponseDrillIn({
   const [reload, setReload] = useState(0);
   const [pipeline, setPipeline] = useState<
     | { phase: "idle" }
-    | { phase: "running" }
+    | {
+        phase: "running";
+        progress?: { label: string; done: number; total: number };
+      }
     | {
         phase: "done";
         result: {
@@ -141,33 +144,148 @@ export function ResponseDrillIn({
   };
 
   const runPipeline = async () => {
+    // Multi-step orchestration on the client. Each /cross-check-step call
+    // does ONE Gemini or Kimi scoring of ONE answer, well within Netlify's
+    // 30 s function limit. Same shape as the audio archive batch loop.
     setPipeline({ phase: "running" });
     try {
-      const res = await fetch(
-        `/api/admin/responses/${responseId}/auto-score-all`,
+      // 1. Plan: list scorable answers + already-scored ones.
+      const planRes = await fetch(
+        `/api/admin/responses/${responseId}/cross-check-plan`,
+        { method: "GET" },
+      );
+      if (!planRes.ok) {
+        const body = (await planRes.json().catch(() => ({}))) as Record<string, unknown>;
+        throw new Error(
+          (body.message as string) ??
+            (body.error as string) ??
+            `plan failed (${planRes.status})`,
+        );
+      }
+      const plan = (await planRes.json()) as {
+        scorable: { answerId: string; maxPoints: number }[];
+        skipped: string[];
+        existing: { gemini: string[]; kimi: string[] };
+      };
+      if (plan.scorable.length === 0) {
+        throw new Error(
+          "No open-ended answers in this response have both a rubric and a candidate answer ready.",
+        );
+      }
+
+      const errors: string[] = [];
+      let geminiCount = 0;
+      let kimiCount = 0;
+
+      const stepFor = async (answerId: string, provider: "gemini" | "kimi") => {
+        const res = await fetch(
+          `/api/admin/answers/${answerId}/cross-check-step`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ provider }),
+          },
+        );
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+          errors.push(
+            `${provider} ${answerId.slice(0, 8)}: ${(body.message as string) ?? (body.error as string) ?? `failed (${res.status})`}`,
+          );
+          return null;
+        }
+        return (await res.json()) as {
+          suggestion: { suggestedScore: number };
+        };
+      };
+
+      // 2. Gemini for any answer that doesn't yet have one.
+      const geminiSet = new Set(plan.existing.gemini);
+      const needsGemini = plan.scorable.filter((a) => !geminiSet.has(a.answerId));
+      for (const a of needsGemini) {
+        const result = await stepFor(a.answerId, "gemini");
+        if (result) geminiCount += 1;
+        setPipeline({
+          phase: "running",
+          progress: {
+            label: "Gemini",
+            done: geminiCount + (geminiSet.size),
+            total: plan.scorable.length,
+          },
+        });
+      }
+
+      // 3. Kimi sample of 3 random answers (that Gemini scored OK).
+      const sampleSize = Math.min(3, plan.scorable.length);
+      const sample = pickRandom(plan.scorable, sampleSize);
+      for (const a of sample) {
+        const result = await stepFor(a.answerId, "kimi");
+        if (result) kimiCount += 1;
+        setPipeline({
+          phase: "running",
+          progress: {
+            label: "Kimi (sample)",
+            done: kimiCount,
+            total: sampleSize,
+          },
+        });
+      }
+
+      // 4. Finalize once: server reads ai_scores, computes consensus, returns it.
+      const finRes = await fetch(
+        `/api/admin/responses/${responseId}/cross-check-plan`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({}),
         },
       );
-      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      if (!res.ok) {
-        throw new Error(
-          (body.message as string) ??
-            (body.error as string) ??
-            `failed (${res.status})`,
+      if (!finRes.ok) throw new Error(`finalize failed (${finRes.status})`);
+      let summary = (await finRes.json()) as {
+        consensus: "agree" | "override" | "gemini_only";
+        gemini_scored: number;
+        kimi_scored: number;
+        sample_size: number;
+        sample_diff: number | null;
+      };
+
+      // 5. If override, run Kimi on the remaining answers and re-finalize.
+      if (summary.consensus === "override") {
+        const sampleIds = new Set(sample.map((a) => a.answerId));
+        const rest = plan.scorable.filter((a) => !sampleIds.has(a.answerId));
+        for (const a of rest) {
+          const result = await stepFor(a.answerId, "kimi");
+          if (result) kimiCount += 1;
+          setPipeline({
+            phase: "running",
+            progress: {
+              label: "Kimi (rescoring)",
+              done: kimiCount,
+              total: sampleSize + rest.length,
+            },
+          });
+        }
+        const finRes2 = await fetch(
+          `/api/admin/responses/${responseId}/cross-check-plan`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          },
         );
+        if (finRes2.ok) {
+          summary = (await finRes2.json()) as typeof summary;
+        }
       }
+
       setPipeline({
         phase: "done",
-        result: body as {
-          consensus: "agree" | "override" | "gemini_only";
-          gemini_scored: number;
-          kimi_scored: number;
-          sample_diff: number | null;
-          skipped: string[];
-          errors: string[];
+        result: {
+          consensus: summary.consensus,
+          gemini_scored: summary.gemini_scored,
+          kimi_scored: summary.kimi_scored,
+          sample_diff: summary.sample_diff,
+          skipped: plan.skipped,
+          errors,
         },
       });
       setReload((r) => r + 1);
@@ -178,6 +296,15 @@ export function ResponseDrillIn({
       });
     }
   };
+
+  function pickRandom<T>(arr: T[], n: number): T[] {
+    const copy = [...arr];
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [copy[i], copy[j]] = [copy[j]!, copy[i]!];
+    }
+    return copy.slice(0, n);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -804,7 +931,10 @@ function PersistedScoreCard({
 
 type PipelineState =
   | { phase: "idle" }
-  | { phase: "running" }
+  | {
+      phase: "running";
+      progress?: { label: string; done: number; total: number };
+    }
   | {
       phase: "done";
       result: {
@@ -885,6 +1015,15 @@ function CrossCheckPanel({
           </button>
         </div>
       </div>
+
+      {pipeline.phase === "running" && pipeline.progress && (
+        <p className="mt-3 text-xs text-foreground">
+          {pipeline.progress.label}:{" "}
+          <strong>
+            {pipeline.progress.done}/{pipeline.progress.total}
+          </strong>
+        </p>
+      )}
 
       {pipeline.phase === "done" && (
         <div className="mt-3 space-y-1 text-xs text-foreground">
