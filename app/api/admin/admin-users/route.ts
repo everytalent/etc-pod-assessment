@@ -11,7 +11,6 @@
  */
 
 import { desc } from "drizzle-orm";
-import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -86,22 +85,19 @@ export async function POST(req: Request) {
     throw err;
   }
 
-  // Send the invitation email via Supabase Auth's invite flow. The link in
-  // the email lands at /admin/auth-callback on whatever host requested
-  // this invite — derived from the incoming Origin/Host so it works on
-  // both the netlify.app fallback and admin.energytalentco.com.
+  // Send the invitation email via Supabase Auth's invite flow. The link must
+  // land on the canonical admin host (admin.energytalentco.com) regardless of
+  // where the inviting admin happens to be browsing from — Netlify branch
+  // hosts like main--etc-pod-assessment.netlify.app are NOT in the Supabase
+  // redirect allowlist, so honouring the request origin would make Supabase
+  // fall back to Site URL and drop our /admin/auth-callback path, leaving the
+  // invitee stuck in a loop.
   let inviteEmailSent = false;
   let inviteEmailError: string | null = null;
   try {
-    const headerStore = await headers();
-    const origin =
-      headerStore.get("origin") ??
-      (headerStore.get("host")
-        ? `https://${headerStore.get("host")}`
-        : "https://admin.energytalentco.com");
     const supa = getSupabaseAdmin();
     const { error } = await supa.auth.admin.inviteUserByEmail(input.email, {
-      redirectTo: `${origin}/admin/auth-callback?next=/admin`,
+      redirectTo: "https://admin.energytalentco.com/admin/auth-callback?next=/admin",
       data: {
         invited_role: input.role,
         invited_by_email: auth.session.email,

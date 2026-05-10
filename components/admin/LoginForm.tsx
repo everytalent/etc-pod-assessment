@@ -47,7 +47,12 @@ export function LoginForm({
   const onSubmit = async ({ email }: Values) => {
     setErrorMessage(null);
     const supabase = createSupabaseBrowserClient();
-    const redirectTo = `${window.location.origin}/admin/auth-callback?next=${encodeURIComponent(next)}`;
+    // Always send people back to the canonical admin host. If we used
+    // window.location.origin here, signing in from a Netlify branch URL
+    // (e.g. main--etc-pod-assessment.netlify.app) would produce a
+    // redirect_to that's not in the Supabase allowlist, and the magic
+    // link would land on the wrong page.
+    const redirectTo = `https://admin.energytalentco.com/admin/auth-callback?next=${encodeURIComponent(next)}`;
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: { emailRedirectTo: redirectTo },
