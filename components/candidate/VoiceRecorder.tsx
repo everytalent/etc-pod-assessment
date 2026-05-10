@@ -167,10 +167,15 @@ export function VoiceRecorder({
         audio_path: string;
       };
 
-      // 2. PUT the blob.
+      // 2. PUT the blob. Strip the ";codecs=..." parameter from the
+      // Content-Type — Supabase Storage's allowed_mime_types check is
+      // exact-string, and "audio/webm;codecs=opus" doesn't match the
+      // "audio/webm" entry in the bucket allowlist. The bytes are
+      // unchanged either way.
+      const baseMime = mimeRef.current.split(";")[0]!.trim();
       const putRes = await fetch(upload_url, {
         method: "PUT",
-        headers: { "Content-Type": mimeRef.current },
+        headers: { "Content-Type": baseMime },
         body: blob,
       });
       if (!putRes.ok) {
