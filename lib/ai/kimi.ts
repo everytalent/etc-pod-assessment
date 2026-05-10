@@ -13,7 +13,11 @@ import {
 } from "./scoring";
 
 const KIMI_ENDPOINT = "https://api.moonshot.ai/v1/chat/completions";
-const DEFAULT_MODEL = "kimi-k2";
+// Moonshot's global API ships under moonshot-v1-* model IDs (kimi-k2 is
+// the open-source release name, not an API model). 8k context is enough
+// for question + rubric + transcript answer; bump to moonshot-v1-32k via
+// KIMI_MODEL env if you grade longer responses.
+const DEFAULT_MODEL = "moonshot-v1-8k";
 
 type KimiResponse = {
   choices?: { message?: { content?: string } }[];
