@@ -219,6 +219,7 @@ function OpenEndedReviewBlock({
   onScored: () => void;
 }) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [audioTier, setAudioTier] = useState<"supabase" | "zoho" | null>(null);
   const [audioLoading, setAudioLoading] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
   const [score, setScore] = useState<number>(answer.scoreAwarded);
@@ -235,8 +236,12 @@ function OpenEndedReviewBlock({
     try {
       const res = await fetch(`/api/admin/answers/${answer.answerId}/audio-url`);
       if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
-      const data = (await res.json()) as { url: string };
+      const data = (await res.json()) as {
+        url: string;
+        tier?: "supabase" | "zoho";
+      };
       setAudioUrl(data.url);
+      setAudioTier(data.tier ?? "supabase");
     } catch (err) {
       setAudioError(err instanceof Error ? err.message : "Couldn't load audio");
     } finally {
@@ -293,7 +298,21 @@ function OpenEndedReviewBlock({
               </span>
             )}
           </p>
-          {audioUrl ? (
+          {audioUrl && audioTier === "zoho" ? (
+            <div className="mt-1 flex items-center gap-2">
+              <a
+                href={audioUrl}
+                target="_blank"
+                rel="noopener"
+                className="inline-flex h-9 items-center rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground hover:opacity-90"
+              >
+                Open in Zoho WorkDrive ↗
+              </a>
+              <span className="text-[0.65rem] text-muted-foreground">
+                Archived to Zoho — opens in WorkDrive (sign in required).
+              </span>
+            </div>
+          ) : audioUrl ? (
             <audio
               controls
               src={audioUrl}
