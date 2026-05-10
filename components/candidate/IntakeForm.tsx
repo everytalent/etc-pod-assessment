@@ -106,11 +106,13 @@ export function IntakeForm({ slug, title, introText, timeRange }: Props) {
         </p>
       )}
 
-      <div className="mt-5 rounded-2xl border-2 border-etc-marigold bg-etc-marigold/15 p-4">
-        <p className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wider text-etc-black">
+      {/* Time-to-complete pill. Lighter on mobile so it doesn't
+          dominate the fold; desktop sizing untouched via sm: classes. */}
+      <div className="mt-4 rounded-2xl border-2 border-etc-marigold bg-etc-marigold/15 p-3 sm:mt-5 sm:p-4">
+        <p className="flex flex-wrap items-center gap-2 text-[0.7rem] font-semibold uppercase tracking-wider text-etc-black sm:text-xs">
           <span aria-hidden>⏱</span> Time to complete
         </p>
-        <p className="mt-1 break-words text-lg font-bold text-etc-black">
+        <p className="mt-1 break-words text-base font-bold text-etc-black sm:text-lg">
           Most people finish in {timeRange.lowMinutes}&ndash;{timeRange.highMinutes} minutes
         </p>
         <p className="mt-1 break-words text-[0.7rem] text-etc-black/80">

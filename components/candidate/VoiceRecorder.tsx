@@ -317,7 +317,16 @@ export function VoiceRecorder({
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={reset}
+              // "Try again" should actually retry — that is, call
+              // getUserMedia again so the browser re-fires its
+              // microphone-permission prompt. Browsers vary: a first
+              // "Don't allow" usually leaves the permission state at
+              // "prompt", so the next call DOES re-prompt; only after
+              // multiple denials do they latch to "denied" and start
+              // silently rejecting. Calling startRecording here gives
+              // candidates the cheapest path back into voice mode
+              // before falling back to the manual-grant message.
+              onClick={() => void startRecording()}
               className="inline-flex h-10 items-center justify-center rounded-xl border border-border bg-background px-4 text-xs font-medium hover:border-etc-marigold"
             >
               Try again
