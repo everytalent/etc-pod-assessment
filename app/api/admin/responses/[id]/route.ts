@@ -7,12 +7,19 @@
  * not the candidate UI.
  */
 
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { requireAdminApi, requireEditorApi } from "@/lib/auth/admin";
 import { db } from "@/lib/db/client";
-import { answers, questions, responses } from "@/lib/db/schema";
+import {
+  type AiScore,
+  type AiScoreProvider,
+  aiScores,
+  answers,
+  questions,
+  responses,
+} from "@/lib/db/schema";
 
 export async function GET(
   _req: Request,
@@ -61,7 +68,25 @@ export async function GET(
     .where(eq(answers.responseId, id))
     .orderBy(asc(answers.answeredAt));
 
-  return NextResponse.json({ response, answers: answerRows });
+  // Pull persisted AI cross-check scores for this response's answers and
+  // attach to each row keyed by provider. The drill-in renders side-by-side
+  // when both providers have a row.
+  const answerIds = answerRows.map((r) => r.answerId);
+  const aiRows: AiScore[] = answerIds.length
+    ? await db.select().from(aiScores).where(inArray(aiScores.answerId, answerIds))
+    : [];
+  const aiByAnswer = new Map<string, Partial<Record<AiScoreProvider, AiScore>>>();
+  for (const row of aiRows) {
+    const bucket = aiByAnswer.get(row.answerId) ?? {};
+    bucket[row.provider] = row;
+    aiByAnswer.set(row.answerId, bucket);
+  }
+  const enrichedAnswers = answerRows.map((r) => ({
+    ...r,
+    aiScores: aiByAnswer.get(r.answerId) ?? {},
+  }));
+
+  return NextResponse.json({ response, answers: enrichedAnswers });
 }
 
 /**

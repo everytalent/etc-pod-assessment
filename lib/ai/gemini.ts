@@ -145,21 +145,16 @@ export async function transcribeAudio(args: {
 }
 
 /**
- * Suggest a score for an open-ended answer given the question, the rubric
- * the assessment author wrote, and the candidate's answer. Returns the
- * suggested score (0..maxPoints), a one-line rationale, and a list of the
- * rubric items the answer hit/missed.
- *
- * The model is told to extend rubric logic with general engineering
- * knowledge — paraphrases of required concepts should still earn credit.
+ * Suggest a score for an open-ended answer using Gemini 2.5 Pro.
+ * Prompt + parse logic live in lib/ai/scoring.ts so Kimi gets the
+ * same treatment.
  */
-export type ScoreSuggestion = {
-  suggestedScore: number;
-  rationale: string;
-  hits: string[];
-  misses: string[];
-  redFlagsTriggered: string[];
-};
+import {
+  buildScoringPrompt,
+  parseScoreSuggestion,
+  type ScoreSuggestion,
+} from "./scoring";
+export type { ScoreSuggestion };
 
 export async function scoreOpenEnded(args: {
   questionText: string;
@@ -167,69 +162,9 @@ export async function scoreOpenEnded(args: {
   candidateAnswer: string;
   maxPoints: number;
 }): Promise<ScoreSuggestion> {
-  const prompt = `You are scoring a single open-ended answer on a solar engineering assessment.
-
-QUESTION:
-${args.questionText}
-
-SCORING RUBRIC (author-written — extend the logic with general engineering knowledge; reward paraphrases that demonstrate the same concept):
-${args.rubric}
-
-CANDIDATE ANSWER:
-${args.candidateAnswer}
-
-MAX POINTS: ${args.maxPoints} (integer; 0 means complete miss, ${args.maxPoints} means full credit)
-
-Return STRICT JSON matching this schema (no markdown, no code fences, no preamble):
-{
-  "suggestedScore": <integer between 0 and ${args.maxPoints}>,
-  "rationale": "<one sentence, plain English, why this score>",
-  "hits": ["<rubric item the answer covered>", ...],
-  "misses": ["<rubric item the answer did not cover>", ...],
-  "redFlagsTriggered": ["<red-flag rubric item the answer hit, if any>", ...]
-}
-
-Scoring guidance:
-- Award full credit if the answer demonstrates understanding of the concept, even if the exact rubric phrase isn't used.
-- A red flag fully triggered should pull the score down sharply (often to 0 or 1) — these indicate dangerous misconceptions.
-- "Must hit N" rules in the rubric: if the answer hits fewer than N required items (counting paraphrases), cap the score proportionally.
-- Empty / blank / "(silence)" answers score 0.`;
-
-  const raw = await callGemini([{ text: prompt }], SCORING_MODEL);
+  const raw = await callGemini(
+    [{ text: buildScoringPrompt(args) }],
+    SCORING_MODEL,
+  );
   return parseScoreSuggestion(raw, args.maxPoints);
-}
-
-function parseScoreSuggestion(raw: string, maxPoints: number): ScoreSuggestion {
-  // Strip code-fences if Gemini wrapped the JSON in ```json ... ``` despite
-  // being told not to.
-  const cleaned = raw
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```\s*$/i, "")
-    .trim();
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(cleaned);
-  } catch {
-    throw new Error(
-      `Gemini returned non-JSON: ${cleaned.slice(0, 140)}`,
-    );
-  }
-  if (typeof parsed !== "object" || parsed === null) {
-    throw new Error("Gemini returned non-object JSON.");
-  }
-  const obj = parsed as Record<string, unknown>;
-  const score = Number(obj.suggestedScore);
-  if (!Number.isFinite(score)) {
-    throw new Error("Gemini didn't return a numeric suggestedScore.");
-  }
-  const clamped = Math.max(0, Math.min(maxPoints, Math.round(score)));
-  const stringArr = (v: unknown): string[] =>
-    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
-  return {
-    suggestedScore: clamped,
-    rationale: typeof obj.rationale === "string" ? obj.rationale : "",
-    hits: stringArr(obj.hits),
-    misses: stringArr(obj.misses),
-    redFlagsTriggered: stringArr(obj.redFlagsTriggered),
-  };
 }

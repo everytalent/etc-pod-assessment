@@ -18,6 +18,7 @@ import {
   pgTable,
   text,
   timestamp,
+  unique,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -60,6 +61,22 @@ export const responseStatusEnum = pgEnum("response_status", [
   "in_progress",
   "submitted",
   "abandoned",
+]);
+/**
+ * Outcome of the dual-AI cross-check pipeline.
+ *
+ *   pending      — pipeline hasn't run yet
+ *   gemini_only  — Gemini scored every answer, Kimi spot-check pending
+ *   agree        — Kimi spot-checked a sample; mean abs diff ≤ threshold;
+ *                  Gemini's scores stand as the AI suggestion of record
+ *   override     — Kimi disagreed with the sample → Kimi rescored
+ *                  everything; Kimi's scores are now primary
+ */
+export const aiConsensusEnum = pgEnum("ai_consensus", [
+  "pending",
+  "gemini_only",
+  "agree",
+  "override",
 ]);
 /**
  * Admin role tiers (least → most privileged on user management):
@@ -208,6 +225,12 @@ export const responses = pgTable(
       .$type<ResponseMetadata>()
       .notNull()
       .default({}),
+    /**
+     * Cross-check pipeline outcome. Populated by
+     * POST /api/admin/responses/[id]/auto-score-all.
+     */
+    aiConsensus: aiConsensusEnum("ai_consensus").notNull().default("pending"),
+    aiPipelineRanAt: timestamp("ai_pipeline_ran_at", { withTimezone: true }),
   },
   (t) => [index("responses_assessment_id_idx").on(t.assessmentId)],
 );
@@ -302,7 +325,7 @@ export const responsesRelations = relations(responses, ({ one, many }) => ({
   answers: many(answers),
 }));
 
-export const answersRelations = relations(answers, ({ one }) => ({
+export const answersRelations = relations(answers, ({ one, many }) => ({
   response: one(responses, {
     fields: [answers.responseId],
     references: [responses.id],
@@ -310,6 +333,51 @@ export const answersRelations = relations(answers, ({ one }) => ({
   question: one(questions, {
     fields: [answers.questionId],
     references: [questions.id],
+  }),
+  aiScores: many(aiScores),
+}));
+
+/**
+ * ai_scores — one row per (answer_id, provider). Lets us keep BOTH a
+ * Gemini suggestion and a Kimi cross-check on the same answer for the
+ * superadmin diff view, without overloading the answers row.
+ *
+ * Unique on (answer_id, provider) so re-running the pipeline upserts
+ * cleanly instead of layering history. If we later want history, swap
+ * to a separate audit table — keeping the live row simple.
+ */
+export const aiScoreProviderEnum = pgEnum("ai_score_provider", [
+  "gemini",
+  "kimi",
+]);
+
+export const aiScores = pgTable(
+  "ai_scores",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    answerId: uuid("answer_id")
+      .notNull()
+      .references(() => answers.id, { onDelete: "cascade" }),
+    provider: aiScoreProviderEnum("provider").notNull(),
+    score: integer("score").notNull(),
+    rationale: text("rationale").notNull().default(""),
+    hits: jsonb("hits").$type<string[]>().notNull().default([]),
+    misses: jsonb("misses").$type<string[]>().notNull().default([]),
+    redFlags: jsonb("red_flags").$type<string[]>().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("ai_scores_answer_idx").on(t.answerId),
+    unique("ai_scores_answer_provider_uniq").on(t.answerId, t.provider),
+  ],
+);
+
+export const aiScoresRelations = relations(aiScores, ({ one }) => ({
+  answer: one(answers, {
+    fields: [aiScores.answerId],
+    references: [answers.id],
   }),
 }));
 
@@ -347,3 +415,7 @@ export type Answer = typeof answers.$inferSelect;
 export type NewAnswer = typeof answers.$inferInsert;
 export type AdminUser = typeof adminUsers.$inferSelect;
 export type NewAdminUser = typeof adminUsers.$inferInsert;
+export type AiScore = typeof aiScores.$inferSelect;
+export type NewAiScore = typeof aiScores.$inferInsert;
+export type AiConsensus = (typeof aiConsensusEnum.enumValues)[number];
+export type AiScoreProvider = (typeof aiScoreProviderEnum.enumValues)[number];

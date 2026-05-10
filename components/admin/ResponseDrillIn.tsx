@@ -16,6 +16,15 @@ import { useEffect, useState } from "react";
 import type { QuestionOption, Response } from "@/lib/db/schema";
 import { cn } from "@/lib/utils";
 
+type PersistedAiScore = {
+  score: number;
+  rationale: string;
+  hits: string[];
+  misses: string[];
+  redFlags: string[];
+  createdAt: string;
+};
+
 type AnswerRow = {
   answerId: string;
   questionId: string;
@@ -25,6 +34,7 @@ type AnswerRow = {
   audioDurationSeconds: number | null;
   transcript: string | null;
   scoringRubric: string | null;
+  aiScores: Partial<Record<"gemini" | "kimi", PersistedAiScore>>;
   scoredBy: string | null;
   scoredAt: string | null;
   timeSpentSeconds: number;
@@ -56,6 +66,61 @@ export function ResponseDrillIn({
   const [data, setData] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  const [pipeline, setPipeline] = useState<
+    | { phase: "idle" }
+    | { phase: "running" }
+    | {
+        phase: "done";
+        result: {
+          consensus: "agree" | "override" | "gemini_only";
+          gemini_scored: number;
+          kimi_scored: number;
+          sample_diff: number | null;
+          skipped: string[];
+          errors: string[];
+        };
+      }
+    | { phase: "error"; message: string }
+  >({ phase: "idle" });
+
+  const runPipeline = async () => {
+    setPipeline({ phase: "running" });
+    try {
+      const res = await fetch(
+        `/api/admin/responses/${responseId}/auto-score-all`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        },
+      );
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!res.ok) {
+        throw new Error(
+          (body.message as string) ??
+            (body.error as string) ??
+            `failed (${res.status})`,
+        );
+      }
+      setPipeline({
+        phase: "done",
+        result: body as {
+          consensus: "agree" | "override" | "gemini_only";
+          gemini_scored: number;
+          kimi_scored: number;
+          sample_diff: number | null;
+          skipped: string[];
+          errors: string[];
+        },
+      });
+      setReload((r) => r + 1);
+    } catch (err) {
+      setPipeline({
+        phase: "error",
+        message: err instanceof Error ? err.message : "Pipeline failed",
+      });
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -149,6 +214,19 @@ export function ResponseDrillIn({
                 }
               />
             </dl>
+
+            <CrossCheckPanel
+              consensus={data.response.aiConsensus}
+              ranAt={
+                // JSON serialisation turns timestamptz into ISO strings;
+                // the Drizzle Response type still claims Date, so coerce.
+                data.response.aiPipelineRanAt
+                  ? String(data.response.aiPipelineRanAt)
+                  : null
+              }
+              pipeline={pipeline}
+              onRun={runPipeline}
+            />
 
             <h3 className="mt-6 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Path ({data.answers.length} answer{data.answers.length === 1 ? "" : "s"})
@@ -462,12 +540,39 @@ function OpenEndedReviewBlock({
         </p>
       )}
 
-      {/* AI suggestion */}
+      {/* Persisted AI scores from the cross-check pipeline */}
+      {(answer.aiScores.gemini || answer.aiScores.kimi) && (
+        <div className="rounded-xl border border-etc-marigold bg-etc-marigold/10 p-3">
+          <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-etc-black">
+            AI scores from pipeline
+          </p>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            {answer.aiScores.gemini && (
+              <PersistedScoreCard
+                provider="Gemini"
+                data={answer.aiScores.gemini}
+                maxPoints={answer.points}
+                onAccept={() => setScore(answer.aiScores.gemini!.score)}
+              />
+            )}
+            {answer.aiScores.kimi && (
+              <PersistedScoreCard
+                provider="Kimi"
+                data={answer.aiScores.kimi}
+                maxPoints={answer.points}
+                onAccept={() => setScore(answer.aiScores.kimi!.score)}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* AI suggestion (ad-hoc, per-answer) */}
       {answer.scoringRubric && (transcript || answer.textResponse) && (
         <div className="rounded-xl border border-dashed border-etc-marigold bg-etc-marigold/10 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-etc-black">
-              AI score suggestion
+              AI score suggestion (one-off)
             </p>
             <button
               type="button"
@@ -567,6 +672,165 @@ function OpenEndedReviewBlock({
       )}
     </div>
   );
+}
+
+/* ---------- Persisted per-answer AI score card ---------- */
+
+function PersistedScoreCard({
+  provider,
+  data,
+  maxPoints,
+  onAccept,
+}: {
+  provider: string;
+  data: PersistedAiScore;
+  maxPoints: number;
+  onAccept: () => void;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-background p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[0.7rem] font-semibold">{provider}</p>
+        <p className="text-sm tabular-nums">
+          <strong>{data.score}</strong>{" "}
+          <span className="text-muted-foreground">/ {maxPoints}</span>
+        </p>
+      </div>
+      {data.rationale && (
+        <p className="mt-1 text-[0.7rem] text-foreground">{data.rationale}</p>
+      )}
+      {data.redFlags.length > 0 && (
+        <p className="mt-1 text-[0.65rem] text-destructive">
+          Red flags: {data.redFlags.join(" · ")}
+        </p>
+      )}
+      <button
+        type="button"
+        onClick={onAccept}
+        className="mt-2 inline-flex h-7 items-center rounded-md bg-primary px-2 text-[0.7rem] font-semibold text-primary-foreground hover:opacity-90"
+      >
+        Use this score
+      </button>
+    </div>
+  );
+}
+
+/* ---------- Cross-check pipeline panel ---------- */
+
+type PipelineState =
+  | { phase: "idle" }
+  | { phase: "running" }
+  | {
+      phase: "done";
+      result: {
+        consensus: "agree" | "override" | "gemini_only";
+        gemini_scored: number;
+        kimi_scored: number;
+        sample_diff: number | null;
+        skipped: string[];
+        errors: string[];
+      };
+    }
+  | { phase: "error"; message: string };
+
+function CrossCheckPanel({
+  consensus,
+  ranAt,
+  pipeline,
+  onRun,
+}: {
+  consensus: "pending" | "gemini_only" | "agree" | "override";
+  ranAt: string | null;
+  pipeline: PipelineState;
+  onRun: () => void;
+}) {
+  const running = pipeline.phase === "running";
+  const badge = consensusBadge(consensus);
+  return (
+    <section className="mt-5 rounded-2xl border border-dashed border-etc-marigold bg-etc-marigold/10 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-etc-black">
+            AI cross-check
+          </p>
+          <p className="mt-1 text-sm">
+            <span className={cn("inline-flex items-center rounded-md px-2 py-0.5 text-[0.7rem] font-medium", badge.className)}>
+              {badge.label}
+            </span>
+            {ranAt && (
+              <span className="ml-2 text-[0.7rem] text-muted-foreground">
+                last run {new Date(ranAt).toLocaleString()}
+              </span>
+            )}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onRun}
+          disabled={running}
+          className="inline-flex h-9 items-center rounded-xl bg-primary px-4 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
+        >
+          {running ? "Scoring…" : "✨ Run AI scoring"}
+        </button>
+      </div>
+
+      {pipeline.phase === "done" && (
+        <div className="mt-3 space-y-1 text-xs text-foreground">
+          <p>
+            Gemini scored <strong>{pipeline.result.gemini_scored}</strong>{" "}
+            answer{pipeline.result.gemini_scored === 1 ? "" : "s"}; Kimi scored{" "}
+            <strong>{pipeline.result.kimi_scored}</strong>.
+            {pipeline.result.sample_diff !== null && (
+              <>
+                {" "}Sample mean abs diff:{" "}
+                <strong>{pipeline.result.sample_diff.toFixed(2)}</strong>.
+              </>
+            )}
+          </p>
+          {pipeline.result.skipped.length > 0 && (
+            <p className="text-muted-foreground">
+              Skipped: {pipeline.result.skipped.join(", ")}
+            </p>
+          )}
+          {pipeline.result.errors.length > 0 && (
+            <details className="text-destructive">
+              <summary className="cursor-pointer">
+                {pipeline.result.errors.length} error
+                {pipeline.result.errors.length === 1 ? "" : "s"}
+              </summary>
+              <ul className="ml-5 list-disc">
+                {pipeline.result.errors.map((e) => (
+                  <li key={e}>{e}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
+
+      {pipeline.phase === "error" && (
+        <p className="mt-3 rounded-lg border border-destructive bg-destructive/10 p-2 text-[0.7rem] text-destructive">
+          {pipeline.message}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function consensusBadge(c: "pending" | "gemini_only" | "agree" | "override"): {
+  label: string;
+  className: string;
+} {
+  switch (c) {
+    case "pending":
+      return { label: "Not run yet", className: "bg-muted text-muted-foreground" };
+    case "gemini_only":
+      return { label: "Gemini scored", className: "bg-etc-marigold/30 text-etc-black" };
+    case "agree":
+      return { label: "Kimi agrees · Gemini stands", className: "bg-emerald-100 text-emerald-900" };
+    case "override":
+      return { label: "Kimi overrode · using Kimi", className: "bg-amber-100 text-amber-900" };
+  }
 }
 
 /* ---------- helpers ---------- */
