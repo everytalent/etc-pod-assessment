@@ -206,7 +206,7 @@ export function VoiceRecorder({
 
   return (
     <div className="rounded-2xl border border-border bg-card p-4">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Voice answer
         </p>

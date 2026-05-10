@@ -97,21 +97,23 @@ export function IntakeForm({ slug, title, introText, timeRange }: Props) {
       <p className="text-[0.68rem] font-medium uppercase tracking-[0.18em] text-muted-foreground">
         ETC POD assessment
       </p>
-      <h1 className="mt-2 text-2xl font-bold leading-tight">{title}</h1>
+      <h1 className="mt-2 break-words text-2xl font-bold leading-tight">
+        {title}
+      </h1>
       {introText && (
-        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+        <p className="mt-3 break-words text-sm leading-relaxed text-muted-foreground">
           {introText}
         </p>
       )}
 
       <div className="mt-5 rounded-2xl border-2 border-etc-marigold bg-etc-marigold/15 p-4">
-        <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-etc-black">
+        <p className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wider text-etc-black">
           <span aria-hidden>⏱</span> Time to complete
         </p>
-        <p className="mt-1 text-lg font-bold text-etc-black">
+        <p className="mt-1 break-words text-lg font-bold text-etc-black">
           Most people finish in {timeRange.lowMinutes}&ndash;{timeRange.highMinutes} minutes
         </p>
-        <p className="mt-1 text-[0.7rem] text-etc-black/80">
+        <p className="mt-1 break-words text-[0.7rem] text-etc-black/80">
           Each question has its own short timer — stay focused and you&rsquo;ll move through quickly.
         </p>
       </div>
@@ -179,8 +181,13 @@ export function IntakeForm({ slug, title, introText, timeRange }: Props) {
   );
 }
 
+// 16 px font on mobile inputs prevents iOS Safari from zooming when
+// the field focuses — the most common mobile-UX papercut. sm:text-sm
+// restores the original 14 px size on desktop so the form looks the
+// same as before. Height stays h-11 across viewports — desktop spec
+// untouched.
 const inputClass =
-  "h-11 w-full rounded-xl border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus-visible:border-etc-marigold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-etc-marigold focus-visible:ring-offset-1 focus-visible:ring-offset-background";
+  "h-11 w-full rounded-xl border border-input bg-background px-3 text-base text-foreground placeholder:text-muted-foreground sm:text-sm focus-visible:border-etc-marigold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-etc-marigold focus-visible:ring-offset-1 focus-visible:ring-offset-background";
 
 function Field({
   label,

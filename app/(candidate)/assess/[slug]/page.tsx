@@ -76,7 +76,7 @@ export default async function AssessIntakePage({
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center px-6 py-10">
+    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col items-center justify-center px-4 py-8 sm:px-6 sm:py-10">
       {isAdminPreview && (
         <div className="mb-3 w-full rounded-lg border border-etc-marigold bg-etc-marigold/15 px-3 py-2 text-[0.7rem] text-etc-black">
           Admin preview ·{" "}

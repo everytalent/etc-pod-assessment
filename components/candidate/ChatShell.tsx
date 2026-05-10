@@ -78,7 +78,17 @@ export function ChatShell({ initial }: { initial: ChatShellInitial }) {
   };
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-md flex-col gap-4 px-4 py-6">
+    <main
+      className={
+        // Desktop is intentionally identical to before: max-w-md +
+        // px-4 + py-6. The only additions are (a) w-full so the
+        // container actually fills narrow screens before hitting the
+        // 28-rem cap, and (b) iOS safe-area insets so notches and the
+        // home-indicator don't eat into content on phones.
+        "mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 px-4 py-6 " +
+        "pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+      }
+    >
       <ProgressBar current={history.length} total={denom} />
 
       <div className="flex flex-1 flex-col gap-3">

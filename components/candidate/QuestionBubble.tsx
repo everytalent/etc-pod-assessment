@@ -43,7 +43,7 @@ export function ActiveQuestionBubble({
         </p>
       )}
       <div className="flex items-start justify-between gap-3">
-        <p className="text-sm leading-relaxed text-foreground">
+        <p className="min-w-0 flex-1 break-words text-base leading-relaxed text-foreground sm:text-sm">
           {question.questionText}
         </p>
         {showTimer && (
@@ -77,9 +77,9 @@ export function LockedQuestionBubble({
         "text-sm text-muted-foreground",
       )}
     >
-      <p className="leading-relaxed">{questionText}</p>
+      <p className="break-words leading-relaxed">{questionText}</p>
       {selectedLabel && (
-        <p className="mt-2 text-xs font-medium text-foreground/70">
+        <p className="mt-2 break-words text-xs font-medium text-foreground/70">
           You answered: <span className="text-foreground">{selectedLabel}</span>
         </p>
       )}

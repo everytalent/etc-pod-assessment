@@ -31,7 +31,7 @@ export function TextResponseInput({
 
   return (
     <div className="rounded-2xl border border-border bg-card p-4">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Type your answer
         </p>
@@ -53,7 +53,9 @@ export function TextResponseInput({
         maxLength={MAX_LENGTH + 50}
         placeholder="Write your answer here…"
         className={cn(
-          "mt-3 w-full resize-y rounded-xl border border-input bg-background p-3 text-sm leading-relaxed",
+          // text-base (16 px) avoids iOS Safari focus-zoom; sm:text-sm
+          // tightens on tablet+ for line economy.
+          "mt-3 w-full resize-y rounded-xl border border-input bg-background p-3 text-base leading-relaxed sm:text-sm",
           "focus-visible:border-etc-marigold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-etc-marigold focus-visible:ring-offset-1 focus-visible:ring-offset-background",
           "disabled:cursor-not-allowed disabled:opacity-60",
         )}

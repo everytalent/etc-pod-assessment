@@ -76,7 +76,12 @@ function McqAnswerInput({ question, onSubmit, disabled }: Props) {
             disabled={disabled || picked !== null}
             onClick={() => handleClick(opt.id)}
             className={cn(
-              "min-h-11 rounded-xl border px-4 py-3 text-left text-sm leading-snug transition-colors",
+              // Desktop preserved: min-h-11 + text-sm. Mobile gets a
+              // 16 px option label (text-base) so labels are easier to
+              // tap-and-read on a phone and iOS Safari won't focus-zoom
+              // when these become focusable. touch-manipulation skips
+              // the 300 ms tap delay on mobile browsers.
+              "min-h-11 break-words rounded-xl border px-4 py-3 text-left text-base leading-snug transition-colors touch-manipulation sm:text-sm",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-etc-marigold focus-visible:ring-offset-2 focus-visible:ring-offset-background",
               "disabled:cursor-not-allowed",
               isPicked
