@@ -84,6 +84,7 @@ export function QuestionEditorModal({
           timeoutAction: question.timeoutAction,
           required: question.required,
           section: question.section,
+          scoringRubric: question.scoringRubric,
         }
       : {
           type: "mcq",
@@ -100,6 +101,7 @@ export function QuestionEditorModal({
           timeoutAction: "auto_submit",
           required: true,
           section: null,
+          scoringRubric: null,
         },
   });
 
@@ -237,20 +239,41 @@ export function QuestionEditorModal({
           </FieldRow>
 
           {type === "open" && (
-            <div className="rounded-xl border border-dashed border-etc-marigold bg-etc-marigold/10 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wider text-etc-black">
-                Open-ended
-              </p>
-              <p className="mt-2 text-xs text-foreground">
-                Candidate sees a voice recorder by default with a &ldquo;Type
-                instead&rdquo; toggle. Both responses are reviewed manually
-                today: <strong>score_awarded starts at 0</strong>, you assign
-                points from the response drill-in (capped at <strong>Points</strong>{" "}
-                below). <strong>Deduction on wrong</strong> is currently
-                inactive for manual review &mdash; it&rsquo;s stored on the
-                question for the upcoming AI auto-scoring phase.
-              </p>
-            </div>
+            <>
+              <div className="rounded-xl border border-dashed border-etc-marigold bg-etc-marigold/10 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wider text-etc-black">
+                  Open-ended
+                </p>
+                <p className="mt-2 text-xs text-foreground">
+                  Candidate sees a voice recorder by default with a &ldquo;Type
+                  instead&rdquo; toggle. Reviewers can transcribe the audio
+                  with Gemini, then click <strong>Suggest score</strong> to
+                  get an AI-suggested score that uses the rubric below.
+                  Reviewers always have final say.
+                </p>
+              </div>
+              <FieldRow
+                label="Scoring rubric (for AI auto-score)"
+                hint='Free-form. List "required keywords", "preferred keywords", "red-flag keywords", "must hit N" rules, and any domain notes. The AI is instructed to extend with general engineering knowledge — paraphrases of required concepts get credit.'
+                error={errors.scoringRubric?.message}
+              >
+                <textarea
+                  rows={8}
+                  {...register("scoringRubric", {
+                    setValueAs: (v) =>
+                      typeof v === "string" && v.trim() === "" ? null : v,
+                  })}
+                  className={cn(fieldInputClass, "h-auto py-2 font-mono text-xs")}
+                  placeholder={`Required (must hit 3):
+- Earth resistance tester
+- Earth continuity test
+- Less than 5 ohms
+
+Red flags:
+- "Use multimeter only"`}
+                />
+              </FieldRow>
+            </>
           )}
 
           {(type === "mcq" || type === "true_false") && (

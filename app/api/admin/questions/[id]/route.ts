@@ -48,6 +48,7 @@ export async function PATCH(
       timeoutAction: input.timeoutAction,
       required: input.required,
       section: input.section,
+      scoringRubric: input.scoringRubric,
     })
     .where(eq(questions.id, id))
     .returning();

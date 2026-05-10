@@ -24,6 +24,7 @@ type AnswerRow = {
   audioPath: string | null;
   audioDurationSeconds: number | null;
   transcript: string | null;
+  scoringRubric: string | null;
   scoredBy: string | null;
   scoredAt: string | null;
   timeSpentSeconds: number;
@@ -233,6 +234,49 @@ function OpenEndedReviewBlock({
   const [transcribing, setTranscribing] = useState(false);
   const [transcribeError, setTranscribeError] = useState<string | null>(null);
 
+  type ScoreSuggestion = {
+    suggestedScore: number;
+    rationale: string;
+    hits: string[];
+    misses: string[];
+    redFlagsTriggered: string[];
+  };
+  const [suggestion, setSuggestion] = useState<ScoreSuggestion | null>(null);
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestError, setSuggestError] = useState<string | null>(null);
+
+  const runSuggest = async () => {
+    setSuggesting(true);
+    setSuggestError(null);
+    try {
+      const res = await fetch(
+        `/api/admin/answers/${answer.answerId}/auto-score`,
+        { method: "POST", headers: { "Content-Type": "application/json" } },
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        suggestion?: ScoreSuggestion;
+        error?: string;
+        message?: string;
+      };
+      if (!res.ok || !data.suggestion) {
+        throw new Error(data.message ?? data.error ?? `failed (${res.status})`);
+      }
+      setSuggestion(data.suggestion);
+    } catch (err) {
+      setSuggestError(
+        err instanceof Error ? err.message : "Couldn't get a suggestion",
+      );
+    } finally {
+      setSuggesting(false);
+    }
+  };
+
+  const acceptSuggestion = () => {
+    if (suggestion) {
+      setScore(suggestion.suggestedScore);
+    }
+  };
+
   const runTranscribe = async () => {
     setTranscribing(true);
     setTranscribeError(null);
@@ -416,6 +460,75 @@ function OpenEndedReviewBlock({
         <p className="text-xs text-muted-foreground">
           (no response submitted)
         </p>
+      )}
+
+      {/* AI suggestion */}
+      {answer.scoringRubric && (transcript || answer.textResponse) && (
+        <div className="rounded-xl border border-dashed border-etc-marigold bg-etc-marigold/10 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-etc-black">
+              AI score suggestion
+            </p>
+            <button
+              type="button"
+              onClick={() => void runSuggest()}
+              disabled={suggesting}
+              className="inline-flex h-8 items-center rounded-lg border border-border bg-background px-3 text-xs hover:border-etc-marigold disabled:opacity-60"
+            >
+              {suggesting
+                ? "Thinking…"
+                : suggestion
+                  ? "Re-suggest"
+                  : "✨ Suggest score"}
+            </button>
+          </div>
+          {suggestion && (
+            <div className="mt-2 space-y-2">
+              <p className="text-sm">
+                Suggested:{" "}
+                <strong className="text-base">
+                  {suggestion.suggestedScore}
+                </strong>{" "}
+                / {answer.points}
+                <button
+                  type="button"
+                  onClick={acceptSuggestion}
+                  className="ml-3 inline-flex h-7 items-center rounded-md bg-primary px-2 text-[0.7rem] font-semibold text-primary-foreground hover:opacity-90"
+                >
+                  Accept
+                </button>
+              </p>
+              {suggestion.rationale && (
+                <p className="text-xs text-foreground">
+                  {suggestion.rationale}
+                </p>
+              )}
+              {suggestion.hits.length > 0 && (
+                <p className="text-[0.7rem] text-muted-foreground">
+                  <span className="font-semibold">Hits:</span>{" "}
+                  {suggestion.hits.join(" · ")}
+                </p>
+              )}
+              {suggestion.misses.length > 0 && (
+                <p className="text-[0.7rem] text-muted-foreground">
+                  <span className="font-semibold">Missed:</span>{" "}
+                  {suggestion.misses.join(" · ")}
+                </p>
+              )}
+              {suggestion.redFlagsTriggered.length > 0 && (
+                <p className="text-[0.7rem] text-destructive">
+                  <span className="font-semibold">Red flags:</span>{" "}
+                  {suggestion.redFlagsTriggered.join(" · ")}
+                </p>
+              )}
+            </div>
+          )}
+          {suggestError && (
+            <div className="mt-2 rounded-lg border border-destructive bg-destructive/10 p-2 text-[0.7rem] text-destructive">
+              {suggestError}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Scoring */}

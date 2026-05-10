@@ -54,6 +54,7 @@ export async function GET(
       points: questions.points,
       negativePoints: questions.negativePoints,
       section: questions.section,
+      scoringRubric: questions.scoringRubric,
     })
     .from(answers)
     .innerJoin(questions, eq(questions.id, answers.questionId))

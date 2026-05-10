@@ -53,6 +53,8 @@ export const upsertQuestionSchema = z
     timeoutAction: z.enum(["auto_submit", "skip", "mark_incorrect"]),
     required: z.boolean(),
     section: z.string().trim().max(80).nullable(),
+    /** Free-form rubric for AI auto-scoring (open-ended only, max 4k chars). */
+    scoringRubric: z.string().max(4000).nullable(),
   })
   .superRefine((val, ctx) => {
     if (val.timerEnabled && val.timeLimitSeconds === null) {

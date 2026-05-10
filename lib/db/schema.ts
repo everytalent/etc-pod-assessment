@@ -152,6 +152,18 @@ export const questions = pgTable(
       .default("auto_submit"),
     required: boolean("required").notNull().default(true),
     section: text("section"),
+    /**
+     * Free-form rubric for AI auto-scoring of open-ended answers.
+     * Author-supplied: "required keywords", "preferred keywords",
+     * "red-flag keywords", "must hit N", domain notes — whatever the
+     * grader needs the model to weigh. The Gemini auto-score endpoint
+     * passes this verbatim into the system prompt, and the model is
+     * instructed to extend the logic with general engineering knowledge
+     * (so candidates get credit for paraphrasing, not just keyword
+     * bingo). Null = no rubric, AI scoring not available for this
+     * question (admin must score manually).
+     */
+    scoringRubric: text("scoring_rubric"),
   },
   (t) => [index("questions_assessment_id_idx").on(t.assessmentId)],
 );

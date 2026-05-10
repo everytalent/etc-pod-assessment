@@ -66,6 +66,7 @@ export async function POST(
       timeoutAction: input.timeoutAction,
       required: input.required,
       section: input.section,
+      scoringRubric: input.scoringRubric,
     })
     .returning();
 
