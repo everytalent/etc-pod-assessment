@@ -229,6 +229,15 @@ export const answers = pgTable(
     /** Recorded duration in seconds (so admin UI can show length without fetching). */
     audioDurationSeconds: integer("audio_duration_seconds"),
     /**
+     * AI-generated transcript of the voice answer (Gemini 2.0 Flash, on
+     * demand from the response drill-in). Null until an admin clicks
+     * "Transcribe" — we don't auto-transcribe at submit time because
+     * (a) it costs API quota for answers no one will review, and (b)
+     * voice answers may be archived to Zoho before review, so deferring
+     * lets us no-op gracefully when the source audio is gone.
+     */
+    transcript: text("transcript"),
+    /**
      * Open-ended answers can't auto-score — they need a human reviewer.
      * scored_by is the admin_users.id who entered a score; null = unscored.
      */

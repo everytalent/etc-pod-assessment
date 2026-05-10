@@ -39,6 +39,7 @@ export async function GET(
       textResponse: answers.textResponse,
       audioPath: answers.audioPath,
       audioDurationSeconds: answers.audioDurationSeconds,
+      transcript: answers.transcript,
       scoredBy: answers.scoredBy,
       scoredAt: answers.scoredAt,
       timeSpentSeconds: answers.timeSpentSeconds,

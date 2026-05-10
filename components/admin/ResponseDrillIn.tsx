@@ -23,6 +23,7 @@ type AnswerRow = {
   textResponse: string | null;
   audioPath: string | null;
   audioDurationSeconds: number | null;
+  transcript: string | null;
   scoredBy: string | null;
   scoredAt: string | null;
   timeSpentSeconds: number;
@@ -228,6 +229,35 @@ function OpenEndedReviewBlock({
   const [savedAt, setSavedAt] = useState<string | null>(
     answer.scoredAt,
   );
+  const [transcript, setTranscript] = useState<string | null>(answer.transcript);
+  const [transcribing, setTranscribing] = useState(false);
+  const [transcribeError, setTranscribeError] = useState<string | null>(null);
+
+  const runTranscribe = async () => {
+    setTranscribing(true);
+    setTranscribeError(null);
+    try {
+      const res = await fetch(
+        `/api/admin/answers/${answer.answerId}/transcribe`,
+        { method: "POST", headers: { "Content-Type": "application/json" } },
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        transcript?: string;
+        error?: string;
+        message?: string;
+      };
+      if (!res.ok) {
+        throw new Error(data.message ?? data.error ?? `failed (${res.status})`);
+      }
+      setTranscript(data.transcript ?? "");
+    } catch (err) {
+      setTranscribeError(
+        err instanceof Error ? err.message : "Transcription failed",
+      );
+    } finally {
+      setTranscribing(false);
+    }
+  };
 
   const loadAudio = async () => {
     if (audioUrl || !answer.audioPath) return;
@@ -334,6 +364,43 @@ function OpenEndedReviewBlock({
           {audioError && (
             <p className="mt-1 text-[0.7rem] text-destructive">{audioError}</p>
           )}
+
+          <div className="mt-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-muted-foreground">
+                Transcript
+              </p>
+              {transcript ? (
+                <button
+                  type="button"
+                  onClick={() => void runTranscribe()}
+                  disabled={transcribing}
+                  className="text-[0.65rem] text-muted-foreground underline-offset-2 hover:text-etc-marigold hover:underline disabled:opacity-60"
+                >
+                  {transcribing ? "Re-transcribing…" : "Re-transcribe"}
+                </button>
+              ) : null}
+            </div>
+            {transcript ? (
+              <p className="mt-1 whitespace-pre-wrap rounded-lg border border-border bg-background p-3 text-sm leading-relaxed">
+                {transcript}
+              </p>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void runTranscribe()}
+                disabled={transcribing}
+                className="mt-1 inline-flex h-9 items-center rounded-lg border border-border bg-background px-3 text-xs hover:border-etc-marigold disabled:opacity-60"
+              >
+                {transcribing ? "Transcribing…" : "✨ Transcribe with Gemini"}
+              </button>
+            )}
+            {transcribeError && (
+              <p className="mt-1 text-[0.7rem] text-destructive">
+                {transcribeError}
+              </p>
+            )}
+          </div>
         </div>
       )}
 
