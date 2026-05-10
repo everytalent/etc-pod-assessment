@@ -103,9 +103,15 @@ export function QuestionEditorModal({
         },
   });
 
+  // keyName: useFieldArray's default ("id") collides with our own option `id`
+  // — RHF would overwrite it with a synthetic key, so the radio's `field.id`
+  // would no longer match the option id stored in form state, and
+  // correctAnswer would reference a phantom uuid the validator can't find.
+  // "rhfKey" parks the synthetic key elsewhere; field.id stays the real one.
   const { fields, append, remove } = useFieldArray({
     control,
     name: "options",
+    keyName: "rhfKey",
   });
 
   // useWatch is the memoizable hook variant; `watch()` returns a non-stable
@@ -259,7 +265,7 @@ export function QuestionEditorModal({
               )}
               <ul className="mt-2 flex flex-col gap-2">
                 {fields.map((field, i) => (
-                  <li key={field.id} className="flex items-center gap-2">
+                  <li key={field.rhfKey} className="flex items-center gap-2">
                     <input
                       type="radio"
                       name="correctRadio"

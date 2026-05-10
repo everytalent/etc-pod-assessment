@@ -13,6 +13,11 @@ import Link from "next/link";
 
 import { getListedPublishedAssessments } from "@/lib/assessment/queries";
 
+// Render on every request — otherwise Next.js statically generates this
+// page at build time and newly published assessments don't appear until
+// the next deploy.
+export const dynamic = "force-dynamic";
+
 const ROLE_LABEL: Record<"tech" | "bd", string> = {
   tech: "Solar Tech",
   bd: "Business Development",
