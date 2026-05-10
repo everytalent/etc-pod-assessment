@@ -8,7 +8,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 
 import {
   upsertAssessmentSchema,
@@ -31,6 +31,7 @@ export function AssessmentForm({ assessment, onSaved }: Props) {
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors, isSubmitting, isDirty },
     reset,
   } = useForm<UpsertAssessmentInput>({
@@ -46,6 +47,8 @@ export function AssessmentForm({ assessment, onSaved }: Props) {
       outroText: assessment.outroText,
     },
   });
+
+  const liveSlug = useWatch({ control, name: "slug" });
 
   const onSubmit = async (values: UpsertAssessmentInput) => {
     setServerError(null);
@@ -79,7 +82,15 @@ export function AssessmentForm({ assessment, onSaved }: Props) {
       </FieldRow>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <FieldRow label="URL slug" error={errors.slug?.message}>
+        <FieldRow
+          label="URL slug"
+          hint={
+            liveSlug && /^[a-z0-9-]+$/.test(liveSlug)
+              ? `Candidate link: https://assess.energytalentco.com/assess/${liveSlug}`
+              : "lower-kebab — used in /assess/<slug>"
+          }
+          error={errors.slug?.message}
+        >
           <input type="text" {...register("slug")} className={fieldInputClass} />
         </FieldRow>
         <FieldRow label="Pass threshold (%)" error={errors.passThreshold?.message}>

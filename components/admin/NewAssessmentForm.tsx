@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 
 import {
   upsertAssessmentSchema,
@@ -19,6 +19,7 @@ export function NewAssessmentForm() {
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<UpsertAssessmentInput>({
     resolver: zodResolver(upsertAssessmentSchema),
@@ -33,6 +34,8 @@ export function NewAssessmentForm() {
       outroText: "",
     },
   });
+
+  const liveSlug = useWatch({ control, name: "slug" });
 
   const onSubmit = async (values: UpsertAssessmentInput) => {
     setServerError(null);
@@ -64,8 +67,12 @@ export function NewAssessmentForm() {
       </FieldRow>
       <FieldRow
         label="URL slug"
+        hint={
+          liveSlug && /^[a-z0-9-]+$/.test(liveSlug)
+            ? `Candidate link: https://assess.energytalentco.com/assess/${liveSlug}`
+            : "lower-kebab — used in /assess/<slug>"
+        }
         error={errors.slug?.message}
-        hint="lower-kebab — used in /assess/:slug"
       >
         <input type="text" {...register("slug")} className={fieldInputClass} />
       </FieldRow>
