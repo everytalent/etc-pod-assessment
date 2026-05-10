@@ -91,6 +91,32 @@ export async function getAssessmentBySlug(
   return row ?? null;
 }
 
+/**
+ * Total time budget for an assessment, in minutes. Sums the per-question
+ * timeLimitSeconds for timed questions and applies a 30 s / question
+ * fallback for un-timed ones (MCQ default reading time). This is the
+ * UPPER BOUND — most candidates finish faster — but it's the number we
+ * commit to on the intake page so people know what they're signing up
+ * for. Returns at least 1.
+ */
+export async function getAssessmentTimeBudgetMinutes(
+  assessmentId: string,
+): Promise<number> {
+  const rows = await db
+    .select({
+      timerEnabled: questions.timerEnabled,
+      timeLimitSeconds: questions.timeLimitSeconds,
+    })
+    .from(questions)
+    .where(eq(questions.assessmentId, assessmentId));
+  if (rows.length === 0) return 1;
+  const total = rows.reduce((acc, q) => {
+    if (q.timerEnabled && q.timeLimitSeconds) return acc + q.timeLimitSeconds;
+    return acc + 30;
+  }, 0);
+  return Math.max(1, Math.ceil(total / 60));
+}
+
 /** Running total = sum of answers.score_awarded so far. */
 export async function getRunningScore(responseId: string): Promise<number> {
   const rows = await db

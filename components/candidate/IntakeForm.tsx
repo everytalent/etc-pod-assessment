@@ -36,9 +36,10 @@ type Props = {
   slug: string;
   title: string;
   introText: string;
+  estimatedMinutes: number;
 };
 
-export function IntakeForm({ slug, title, introText }: Props) {
+export function IntakeForm({ slug, title, introText, estimatedMinutes }: Props) {
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -103,7 +104,12 @@ export function IntakeForm({ slug, title, introText }: Props) {
         </p>
       )}
 
-      <ul className="mt-5 space-y-1.5 text-xs text-muted-foreground">
+      <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-etc-marigold bg-etc-marigold/10 px-3 py-1 text-[0.7rem] font-medium text-etc-black">
+        <span aria-hidden>⏱</span>
+        Plan around <strong>~{estimatedMinutes} min</strong> to finish — that&rsquo;s the longest case if you use every timer in full.
+      </div>
+
+      <ul className="mt-4 space-y-1.5 text-xs text-muted-foreground">
         <li>· Some questions are timed — answer as quickly and accurately as you can.</li>
         <li>· Wrong answers may deduct points. Skip if unsure.</li>
         <li>· One question at a time. You cannot return to a previous question.</li>

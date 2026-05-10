@@ -13,7 +13,10 @@ import { IntakeForm } from "@/components/candidate/IntakeForm";
 import { getAdminUser } from "@/lib/auth/admin";
 import { db } from "@/lib/db/client";
 import { responses } from "@/lib/db/schema";
-import { getAssessmentBySlug } from "@/lib/assessment/queries";
+import {
+  getAssessmentBySlug,
+  getAssessmentTimeBudgetMinutes,
+} from "@/lib/assessment/queries";
 import { getCandidateSession } from "@/lib/session";
 
 export default async function AssessIntakePage({
@@ -85,6 +88,7 @@ export default async function AssessIntakePage({
         slug={slug}
         title={assessment.title}
         introText={assessment.introText}
+        estimatedMinutes={await getAssessmentTimeBudgetMinutes(assessment.id)}
       />
     </main>
   );
