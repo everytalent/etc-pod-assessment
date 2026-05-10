@@ -44,6 +44,7 @@ type AnswerRow = {
   canSeeAi: boolean;
   scoredBy: string | null;
   scoredAt: string | null;
+  scoreSource: "manual" | "ai_gemini" | "ai_kimi";
   timeSpentSeconds: number;
   timedOut: boolean;
   scoreAwarded: number;
@@ -598,6 +599,48 @@ function OpenEndedReviewBlock({
     }
   };
 
+  // pendingSource tracks how the next save should be tagged. Clicking
+  // "Use this score" on an AI card sets it; manual edits to the input
+  // reset it to 'manual'. Cleared after a successful save.
+  const [pendingSource, setPendingSource] = useState<
+    "manual" | "ai_gemini" | "ai_kimi"
+  >("manual");
+
+  const [reassessing, setReassessing] = useState<"gemini" | "kimi" | null>(null);
+  const [reassessError, setReassessError] = useState<string | null>(null);
+
+  const reassessOne = async (provider: "gemini" | "kimi") => {
+    setReassessing(provider);
+    setReassessError(null);
+    try {
+      const res = await fetch(
+        `/api/admin/answers/${answer.answerId}/cross-check-step`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider }),
+        },
+      );
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!res.ok) {
+        throw new Error(
+          (body.message as string) ??
+            (body.error as string) ??
+            `failed (${res.status})`,
+        );
+      }
+      // The persisted card reads from data.aiScores; the parent reload
+      // refreshes it after this returns.
+      onScored();
+    } catch (err) {
+      setReassessError(
+        err instanceof Error ? err.message : "Re-assess failed",
+      );
+    } finally {
+      setReassessing(null);
+    }
+  };
+
   const submitScore = async () => {
     if (score < 0 || score > answer.points) {
       setScoreError(`Score must be between 0 and ${answer.points}.`);
@@ -609,13 +652,17 @@ function OpenEndedReviewBlock({
       const res = await fetch(`/api/admin/answers/${answer.answerId}/score`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ score_awarded: score }),
+        body: JSON.stringify({
+          score_awarded: score,
+          source: pendingSource,
+        }),
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { message?: string };
         throw new Error(data.message ?? `failed (${res.status})`);
       }
       setSavedAt(new Date().toISOString());
+      setPendingSource("manual");
       onScored();
     } catch (err) {
       setScoreError(err instanceof Error ? err.message : "Save failed");
@@ -749,7 +796,12 @@ function OpenEndedReviewBlock({
                 provider={providerLabel("gemini")}
                 data={answer.aiScores.gemini}
                 maxPoints={answer.points}
-                onAccept={() => setScore(answer.aiScores.gemini!.score)}
+                onAccept={() => {
+                  setScore(answer.aiScores.gemini!.score);
+                  setPendingSource("ai_gemini");
+                }}
+                onReassess={() => void reassessOne("gemini")}
+                reassessing={reassessing === "gemini"}
               />
             )}
             {answer.aiScores.kimi && (
@@ -757,7 +809,12 @@ function OpenEndedReviewBlock({
                 provider={providerLabel("kimi")}
                 data={answer.aiScores.kimi}
                 maxPoints={answer.points}
-                onAccept={() => setScore(answer.aiScores.kimi!.score)}
+                onAccept={() => {
+                  setScore(answer.aiScores.kimi!.score);
+                  setPendingSource("ai_kimi");
+                }}
+                onReassess={() => void reassessOne("kimi")}
+                reassessing={reassessing === "kimi"}
               />
             )}
           </div>
@@ -854,7 +911,12 @@ function OpenEndedReviewBlock({
             min={0}
             max={answer.points}
             value={score}
-            onChange={(e) => setScore(Number(e.target.value))}
+            onChange={(e) => {
+              setScore(Number(e.target.value));
+              // A manual edit reverts the next save to 'manual', even
+              // if "Use this score" was just clicked.
+              setPendingSource("manual");
+            }}
             className="h-9 w-20 rounded-lg border border-input bg-background px-2 text-sm tabular-nums focus-visible:border-etc-marigold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-etc-marigold"
           />
         </label>
@@ -869,20 +931,47 @@ function OpenEndedReviewBlock({
           {saving ? "Saving…" : "Save score"}
         </button>
         {savedAt && (
-          <span className="text-[0.7rem] text-muted-foreground">
-            Last scored {new Date(savedAt).toLocaleString()}
-            {answer.scorer && (
-              <>
-                {" "}by <strong>{answer.scorer.email}</strong> ({answer.scorer.role})
-              </>
-            )}
+          <span className="flex flex-wrap items-center gap-2 text-[0.7rem] text-muted-foreground">
+            <span>
+              Last scored {new Date(savedAt).toLocaleString()}
+              {answer.scorer && (
+                <>
+                  {" "}by <strong>{answer.scorer.email}</strong> ({answer.scorer.role})
+                </>
+              )}
+            </span>
+            <SourceBadge source={answer.scoreSource} />
           </span>
         )}
       </div>
+      {reassessError && (
+        <p className="text-[0.7rem] text-destructive">{reassessError}</p>
+      )}
       {scoreError && (
         <p className="text-[0.7rem] text-destructive">{scoreError}</p>
       )}
     </div>
+  );
+}
+
+/* ---------- Score-source badge ---------- */
+
+function SourceBadge({ source }: { source: "manual" | "ai_gemini" | "ai_kimi" }) {
+  if (source === "manual") {
+    return (
+      <span className="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-[0.65rem] font-medium text-muted-foreground">
+        Manual score
+      </span>
+    );
+  }
+  const label =
+    source === "ai_gemini"
+      ? "Accepted from 1st assessor (Gemini)"
+      : "Accepted from 2nd assessor (Kimi)";
+  return (
+    <span className="inline-flex items-center rounded-md bg-etc-marigold/30 px-1.5 py-0.5 text-[0.65rem] font-medium text-etc-black">
+      {label}
+    </span>
   );
 }
 
@@ -913,11 +1002,15 @@ function PersistedScoreCard({
   data,
   maxPoints,
   onAccept,
+  onReassess,
+  reassessing,
 }: {
   provider: string;
   data: PersistedAiScore;
   maxPoints: number;
   onAccept: () => void;
+  onReassess: () => void;
+  reassessing: boolean;
 }) {
   return (
     <div className="rounded-lg border border-border bg-background p-3">
@@ -936,13 +1029,23 @@ function PersistedScoreCard({
           Red flags: {data.redFlags.join(" · ")}
         </p>
       )}
-      <button
-        type="button"
-        onClick={onAccept}
-        className="mt-2 inline-flex h-7 items-center rounded-md bg-primary px-2 text-[0.7rem] font-semibold text-primary-foreground hover:opacity-90"
-      >
-        Use this score
-      </button>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={onAccept}
+          className="inline-flex h-7 items-center rounded-md bg-primary px-2 text-[0.7rem] font-semibold text-primary-foreground hover:opacity-90"
+        >
+          Use this score
+        </button>
+        <button
+          type="button"
+          onClick={onReassess}
+          disabled={reassessing}
+          className="inline-flex h-7 items-center rounded-md border border-border bg-background px-2 text-[0.7rem] hover:border-etc-marigold disabled:opacity-60"
+        >
+          {reassessing ? "Re-assessing…" : "Re-assess"}
+        </button>
+      </div>
     </div>
   );
 }

@@ -54,6 +54,7 @@ export async function GET(
       timeSpentSeconds: answers.timeSpentSeconds,
       timedOut: answers.timedOut,
       scoreAwarded: answers.scoreAwarded,
+      scoreSource: answers.scoreSource,
       answeredAt: answers.answeredAt,
       questionText: questions.questionText,
       questionType: questions.type,

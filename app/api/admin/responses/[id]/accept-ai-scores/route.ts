@@ -101,12 +101,14 @@ export async function POST(
       and(eq(aiScores.provider, provider), inArray(aiScores.answerId, openIds)),
     );
 
+  const sourceTag = provider === "kimi" ? "ai_kimi" : "ai_gemini";
   let accepted = 0;
   for (const row of aiRows) {
     await db
       .update(answers)
       .set({
         scoreAwarded: row.score,
+        scoreSource: sourceTag,
         scoredBy: auth.session.admin.id,
         scoredAt: new Date(),
       })

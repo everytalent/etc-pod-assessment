@@ -20,6 +20,9 @@ import { answers, assessments, questions, responses } from "@/lib/db/schema";
 
 const inputSchema = z.object({
   score_awarded: z.number().int(),
+  // Optional: 'manual' (default), 'ai_gemini', or 'ai_kimi'. UI sends
+  // ai_* when the reviewer accepted an AI suggestion via "Use this score".
+  source: z.enum(["manual", "ai_gemini", "ai_kimi"]).default("manual"),
 });
 
 export async function PATCH(
@@ -77,6 +80,7 @@ export async function PATCH(
     .update(answers)
     .set({
       scoreAwarded: input.score_awarded,
+      scoreSource: input.source,
       scoredBy: auth.session.admin.id,
       scoredAt: new Date(),
     })

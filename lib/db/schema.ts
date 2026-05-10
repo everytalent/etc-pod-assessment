@@ -63,6 +63,18 @@ export const responseStatusEnum = pgEnum("response_status", [
   "abandoned",
 ]);
 /**
+ * Where the live answer score came from. 'manual' = an admin typed and
+ * saved a number; 'ai_gemini' / 'ai_kimi' = an admin accepted that AI's
+ * suggestion. Lets the drill-in show "Score accepted from 1st assessor
+ * by Ugo" rather than treating every save the same.
+ */
+export const scoreSourceEnum = pgEnum("score_source", [
+  "manual",
+  "ai_gemini",
+  "ai_kimi",
+]);
+
+/**
  * Outcome of the dual-AI cross-check pipeline.
  *
  *   pending      — pipeline hasn't run yet
@@ -281,6 +293,12 @@ export const answers = pgTable(
     timeSpentSeconds: integer("time_spent_seconds").notNull().default(0),
     timedOut: boolean("timed_out").notNull().default(false),
     scoreAwarded: integer("score_awarded").notNull().default(0),
+    /**
+     * How the current score was set: a manual entry, or acceptance of a
+     * persisted AI suggestion. Updated alongside score_awarded on every
+     * save so the audit trail stays accurate.
+     */
+    scoreSource: scoreSourceEnum("score_source").notNull().default("manual"),
     answeredAt: timestamp("answered_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -419,3 +437,4 @@ export type AiScore = typeof aiScores.$inferSelect;
 export type NewAiScore = typeof aiScores.$inferInsert;
 export type AiConsensus = (typeof aiConsensusEnum.enumValues)[number];
 export type AiScoreProvider = (typeof aiScoreProviderEnum.enumValues)[number];
+export type ScoreSource = (typeof scoreSourceEnum.enumValues)[number];
