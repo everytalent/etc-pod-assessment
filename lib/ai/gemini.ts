@@ -37,20 +37,78 @@ async function callGemini(parts: GeminiPart[]): Promise<string> {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Gemini ${res.status}: ${text || res.statusText}`);
+    throw new Error(humaniseGeminiError(res.status, text));
   }
   const data = (await res.json()) as GeminiResponse;
   if (data.promptFeedback?.blockReason) {
-    throw new Error(`Gemini blocked: ${data.promptFeedback.blockReason}`);
+    throw new Error(`Gemini blocked the request (${data.promptFeedback.blockReason}).`);
   }
   const out = data.candidates?.[0]?.content?.parts
     ?.map((p) => p.text ?? "")
     .join("")
     .trim();
   if (!out) {
-    throw new Error("Gemini returned no text");
+    throw new Error("Gemini returned no text.");
   }
   return out;
+}
+
+/**
+ * Translate a Gemini error response into a sentence a non-engineer can act
+ * on. Google emits 100+ lines of JSON for a 429 — the user-facing UI just
+ * needs the gist: what failed, and what to do about it.
+ */
+function humaniseGeminiError(status: number, body: string): string {
+  type GeminiErrorBody = {
+    error?: {
+      message?: string;
+      details?: {
+        "@type"?: string;
+        retryDelay?: string;
+        violations?: { quotaMetric?: string }[];
+      }[];
+    };
+  };
+  let parsed: GeminiErrorBody | null = null;
+  try {
+    parsed = JSON.parse(body) as GeminiErrorBody;
+  } catch {
+    // Body wasn't JSON — fall through to generic handling below.
+  }
+
+  if (status === 429) {
+    const details = parsed?.error?.details ?? [];
+    const violations = details
+      .flatMap((d) => d.violations ?? [])
+      .filter((v): v is { quotaMetric: string } => Boolean(v.quotaMetric));
+    const hasZeroFreeTier = violations.some((v) =>
+      v.quotaMetric.includes("free_tier"),
+    );
+    if (hasZeroFreeTier) {
+      return "Gemini quota: this API key has no free-tier allowance. Enable billing on the Google Cloud project, or generate a new key from aistudio.google.com.";
+    }
+    const retry = details.find((d) => d["@type"]?.includes("RetryInfo"))
+      ?.retryDelay;
+    return retry
+      ? `Gemini rate limit hit. Try again in ${retry}.`
+      : "Gemini rate limit hit. Try again shortly.";
+  }
+
+  if (status === 401 || status === 403) {
+    return "Gemini API key is invalid or revoked. Check ASSESSMENT_GEMINI_KEY.";
+  }
+
+  if (status === 400) {
+    const msg = parsed?.error?.message ?? "request was rejected";
+    return `Gemini rejected the request: ${msg.slice(0, 140)}`;
+  }
+
+  if (status >= 500) {
+    return `Gemini is having a moment (${status}). Try again in a few seconds.`;
+  }
+
+  const msg = parsed?.error?.message;
+  return msg ? `Gemini ${status}: ${msg.slice(0, 140)}` : `Gemini ${status} error.`;
 }
 
 /**

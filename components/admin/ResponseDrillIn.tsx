@@ -396,9 +396,17 @@ function OpenEndedReviewBlock({
               </button>
             )}
             {transcribeError && (
-              <p className="mt-1 text-[0.7rem] text-destructive">
-                {transcribeError}
-              </p>
+              <div className="mt-2 rounded-lg border border-destructive bg-destructive/10 p-2 text-[0.7rem] text-destructive">
+                <p className="leading-relaxed">{transcribeError}</p>
+                <button
+                  type="button"
+                  onClick={() => void runTranscribe()}
+                  disabled={transcribing}
+                  className="mt-1 text-[0.65rem] font-medium underline-offset-2 hover:underline disabled:opacity-60"
+                >
+                  Try again
+                </button>
+              </div>
             )}
           </div>
         </div>
