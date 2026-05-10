@@ -414,6 +414,11 @@ async function main() {
 
   for (let i = 0; i < QUESTIONS.length; i++) {
     const q = QUESTIONS[i]!;
+    // Default per-question time limits: tight enough to keep candidates
+    // honest, generous enough to read the scenario and form a real answer.
+    // MCQs: 90s — read scenario + pick. Open-ended: 240s — line up below
+    // the 5-min voice cap so the recorder never auto-cuts on the user.
+    const timeLimitSeconds = q.type === "mcq" ? 90 : 240;
     const common = {
       assessmentId: assessment.id,
       orderIndex: i,
@@ -421,8 +426,8 @@ async function main() {
       section: q.section,
       points: q.points,
       negativePoints: q.negativePoints,
-      timerEnabled: false,
-      timeLimitSeconds: null,
+      timerEnabled: true,
+      timeLimitSeconds,
       timeoutAction: "auto_submit" as const,
       required: true,
     };
