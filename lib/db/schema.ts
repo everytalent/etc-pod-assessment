@@ -136,6 +136,14 @@ export type ResponseMetadata = {
   last_question_shown_at?: string;
   /** Set true on responses started from admin preview mode (PRD §5.5). */
   preview?: boolean;
+  /**
+   * Number of times the /session Server Component rendered for this
+   * response. 1 = normal first load; > 1 = the candidate refreshed or
+   * navigated back. Surfaced in the admin drill-in as a soft audit
+   * signal — high counts can indicate poor connectivity OR cheating
+   * attempts, so it's never auto-blocking.
+   */
+  session_loads?: number;
 };
 
 /* ---------- Tables ---------- */

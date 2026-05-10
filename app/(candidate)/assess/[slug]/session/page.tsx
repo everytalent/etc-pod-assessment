@@ -21,7 +21,12 @@ import {
   getRunningScore,
 } from "@/lib/assessment/queries";
 import { db } from "@/lib/db/client";
-import { assessments, questions, responses } from "@/lib/db/schema";
+import {
+  assessments,
+  questions,
+  responses,
+  type ResponseMetadata,
+} from "@/lib/db/schema";
 import { getCandidateSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -41,6 +46,7 @@ export default async function AssessSessionPage({
       status: responses.status,
       assessmentId: responses.assessmentId,
       assessmentSlug: assessments.slug,
+      metadata: responses.metadata,
     })
     .from(responses)
     .innerJoin(assessments, eq(assessments.id, responses.assessmentId))
@@ -52,6 +58,22 @@ export default async function AssessSessionPage({
   }
   if (row.status !== "in_progress") {
     redirect(`/assess/${slug}/done`);
+  }
+
+  // Increment session_loads on every render. First load → 1; each
+  // refresh / back-nav adds 1. Soft signal only — never blocks the
+  // candidate; admins see it in the drill-in for context (poor
+  // internet vs. potential cheating). Best-effort: if the write
+  // fails we still serve the page.
+  try {
+    const meta = (row.metadata ?? {}) as ResponseMetadata;
+    const next = (meta.session_loads ?? 0) + 1;
+    await db
+      .update(responses)
+      .set({ metadata: { ...meta, session_loads: next } })
+      .where(eq(responses.id, responseId));
+  } catch {
+    // Swallow — counter is observability, not load-bearing.
   }
 
   const next = await getNextQuestion(responseId);

@@ -400,6 +400,26 @@ export function ResponseDrillIn({
               />
             </dl>
 
+            {/* Session-load count: soft cheating / connectivity signal.
+                1 load = clean run; ≥4 might indicate refreshes worth
+                investigating but never auto-blocking. */}
+            {data.response.metadata.session_loads != null &&
+              data.response.metadata.session_loads > 1 && (
+                <p className="mt-3 text-[0.7rem] text-muted-foreground">
+                  Session loaded{" "}
+                  <strong>{data.response.metadata.session_loads}</strong>{" "}
+                  times
+                  {data.response.metadata.session_loads >= 4 && (
+                    <span className="ml-2 inline-flex items-center rounded-md bg-amber-100 px-1.5 py-0.5 text-[0.65rem] font-medium text-amber-900">
+                      High — possible refresh pattern
+                    </span>
+                  )}
+                  . First load = 1; each refresh / back-nav adds 1.
+                  Common causes: poor connectivity (mobile in the field)
+                  or repeated attempts.
+                </p>
+              )}
+
             {data.viewer.canRunAiPipeline && (
               <CrossCheckPanel
                 consensus={data.response.aiConsensus}
