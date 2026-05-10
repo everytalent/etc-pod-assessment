@@ -43,3 +43,7 @@ next-env.d.ts
 
 # Local Netlify folder
 .netlify
+
+# Deno lockfile — emitted incidentally by Netlify's edge bundler; we don't
+# use Deno directly.
+deno.lock

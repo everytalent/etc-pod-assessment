@@ -12,6 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Netlify build output — `netlify deploy --build` emits Edge Function
+    // vendor bundles (Deno-typed) into .netlify/. Generated, third-party,
+    // not ours to lint.
+    ".netlify/**",
+    "deno.lock",
   ]),
 ]);
 
