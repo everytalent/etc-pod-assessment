@@ -68,10 +68,11 @@ export function ZohoExportButton({
     setArchiveTotals({ archived: 0, failed: 0, remaining: 0, errors: [] });
   };
 
-  async function runArchiveLoop() {
+  async function runArchiveLoop(exportData: ExportResult) {
     setPhase("archiving");
     let totalArchived = 0;
     let totalFailed = 0;
+    let lastRemaining = 0;
     let allErrors: ArchiveBatchResult["errors"] = [];
 
     // Hard cap: 200 batches × 10 = 2000 audios per click. Safety net so we
@@ -95,19 +96,43 @@ export function ZohoExportButton({
       const batch = (await res.json()) as ArchiveBatchResult;
       totalArchived += batch.archived;
       totalFailed += batch.failed;
+      lastRemaining = batch.remaining;
       if (batch.errors.length > 0) {
         allErrors = allErrors.concat(batch.errors);
       }
       setArchiveTotals({
         archived: totalArchived,
         failed: totalFailed,
-        remaining: batch.remaining,
+        remaining: lastRemaining,
         errors: allErrors,
       });
       if (batch.remaining === 0) break;
       // No remaining reduction this batch → likely all failures, stop to avoid loop.
       if (batch.archived === 0 && batch.skipped_already_archived === 0) break;
     }
+
+    // Fire-and-forget the summary email. Failure is non-fatal — the archive
+    // already happened and the UI shows the totals.
+    void fetch(
+      `/api/admin/assessments/${assessmentId}/responses/archive-summary-email`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          archived: totalArchived,
+          failed: totalFailed,
+          remaining: lastRemaining,
+          workdrive_url: exportData.workdrive_file_url,
+          file_name: exportData.file_name,
+          response_count: exportData.response_count,
+          voice_answer_count: exportData.voice_answer_count,
+          errors: allErrors.slice(0, 50),
+        }),
+      },
+    ).catch(() => {
+      // Swallow — summary email is a nice-to-have.
+    });
+
     setPhase("done");
   }
 
@@ -137,7 +162,7 @@ export function ZohoExportButton({
 
       // 2. Archive the audio if requested.
       if (archiveAudio && data.voice_answer_count > 0) {
-        await runArchiveLoop();
+        await runArchiveLoop(data);
       } else {
         setPhase("done");
       }
@@ -292,6 +317,9 @@ export function ZohoExportButton({
                         re-run to retry.
                       </>
                     )}
+                    <span className="block pt-1 text-muted-foreground">
+                      Summary email sent to your inbox.
+                    </span>
                   </p>
                 )}
 

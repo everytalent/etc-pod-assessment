@@ -6,7 +6,7 @@
  * column list is the type contract: the leak is impossible by construction.
  */
 
-import { eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import {
@@ -16,6 +16,39 @@ import {
   questions,
 } from "@/lib/db/schema";
 import type { CandidateQuestion } from "./validators";
+
+/** Subset of assessment fields safe to expose on the public landing. */
+export type PublicAssessmentCard = {
+  slug: string;
+  title: string;
+  roleType: Assessment["roleType"];
+  introText: string;
+};
+
+/**
+ * Assessments the public landing page should list. Status must be
+ * 'published' AND visibility must be 'listed' — unlisted ones stay
+ * link-only.
+ */
+export async function getListedPublishedAssessments(): Promise<
+  PublicAssessmentCard[]
+> {
+  return db
+    .select({
+      slug: assessments.slug,
+      title: assessments.title,
+      roleType: assessments.roleType,
+      introText: assessments.introText,
+    })
+    .from(assessments)
+    .where(
+      and(
+        eq(assessments.status, "published"),
+        eq(assessments.visibility, "listed"),
+      ),
+    )
+    .orderBy(asc(assessments.roleType), asc(assessments.title));
+}
 
 /** Sanitised question — no `correctAnswer`, ever. */
 export async function getCandidateQuestion(
