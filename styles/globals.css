@@ -121,3 +121,14 @@
     -webkit-font-smoothing: antialiased;
   }
 }
+
+/*
+ * Progress-bar fill width is driven by a CSS custom property the React
+ * component sets via the only inline style we keep — Tailwind needs
+ * static class names at build time and we can't precompile a class per
+ * percent. Reading the variable keeps the actual styling rule here.
+ */
+.progress-fill {
+  width: var(--progress-pct, 0%);
+}
+

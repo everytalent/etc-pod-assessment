@@ -11,10 +11,13 @@
  */
 
 // Per-call model. Transcription uses Flash (cheap, audio-native).
-// Scoring uses 3.1 because rubric-grading benefits from stronger reasoning
-// and the cost is amortised over a small per-day volume of admin reviews.
+// Scoring uses 2.5 Pro because rubric-grading benefits from stronger
+// reasoning and the cost is amortised over a small per-day volume of
+// admin reviews. (We tried `gemini-3.1` originally — Google doesn't
+// publish that name; v1beta returns 404. 2.5 Pro is the strongest stable
+// model on the public API as of 2026-05.)
 const TRANSCRIBE_MODEL = "gemini-2.5-flash";
-const SCORING_MODEL = "gemini-3.1";
+const SCORING_MODEL = "gemini-2.5-pro";
 
 function endpointFor(model: string): string {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
