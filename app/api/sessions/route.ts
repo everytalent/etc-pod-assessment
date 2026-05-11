@@ -89,6 +89,11 @@ export async function POST(req: Request) {
       metadata: {
         user_agent: userAgent,
         ip_hash: ipHash,
+        // Snapshot of the IP at session start. Compared against
+        // submit_ip_hash on finalize to flag mid-session network
+        // changes (legit when commuting; suspicious paired with high
+        // paste/blur counts).
+        start_ip_hash: ipHash,
         path: [],
         // Server-truth timestamp for the timer (PRD §5.2). Persisted as ISO
         // string inside metadata; route handlers read it on answer submit.

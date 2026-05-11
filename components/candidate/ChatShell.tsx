@@ -69,6 +69,25 @@ export function ChatShell({ initial }: { initial: ChatShellInitial }) {
     }
   }, [isComplete, router, initial.slug]);
 
+  // Tab-blur counter: fire whenever the page becomes hidden during the
+  // assessment. Fire-and-forget POST so a flaky network never blocks the
+  // candidate from continuing.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const onHide = () => {
+      if (document.hidden) {
+        void fetch("/api/sessions/signal", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "tab_blur" }),
+          keepalive: true,
+        }).catch(() => {});
+      }
+    };
+    document.addEventListener("visibilitychange", onHide);
+    return () => document.removeEventListener("visibilitychange", onHide);
+  }, []);
+
   // Total may be wrong (branching), so progress denominator is max(total,
   // history+1) — always at least one step ahead of the answered count.
   const denom = Math.max(initial.totalQuestions, history.length + 1);

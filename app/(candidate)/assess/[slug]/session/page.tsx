@@ -7,7 +7,10 @@
  * from responses row keyed by session cookie" — done in one server pass).
  */
 
+import { createHash } from "node:crypto";
+
 import { eq } from "drizzle-orm";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { ChatShell } from "@/components/candidate/ChatShell";
@@ -78,7 +81,15 @@ export default async function AssessSessionPage({
 
   const next = await getNextQuestion(responseId);
   if (next.kind === "end") {
-    await finalizeResponse(responseId);
+    // Snapshot the current request IP at finalize so we can compare
+    // against start_ip_hash in the admin drill-in.
+    const headerStore = await headers();
+    const ip =
+      (headerStore.get("x-forwarded-for") ?? "").split(",")[0]?.trim() ?? "";
+    const submitIpHash = ip
+      ? createHash("sha256").update(ip).digest("hex").slice(0, 32)
+      : undefined;
+    await finalizeResponse(responseId, submitIpHash);
     redirect(`/assess/${slug}/done`);
   }
 

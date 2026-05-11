@@ -48,6 +48,17 @@ export function TextResponseInput({
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
+        // Paste counter — fire-and-forget so a slow / unreachable API
+        // never delays the candidate's typing. Pasted text is still
+        // saved; this is observability only.
+        onPaste={() => {
+          void fetch("/api/sessions/signal", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "paste" }),
+            keepalive: true,
+          }).catch(() => {});
+        }}
         disabled={disabled}
         rows={5}
         maxLength={MAX_LENGTH + 50}

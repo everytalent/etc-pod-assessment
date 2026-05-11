@@ -292,8 +292,14 @@ export async function getNextQuestion(
 /**
  * Finalize a response — compute total score, max possible score (over the
  * questions actually shown), pass/fail, and persist back to `responses`.
+ *
+ * Optionally stamps submit_ip_hash on metadata so the drill-in can show
+ * whether the candidate's network changed between intake and submission.
  */
-export async function finalizeResponse(responseId: string): Promise<{
+export async function finalizeResponse(
+  responseId: string,
+  submitIpHash?: string,
+): Promise<{
   totalScore: number;
   maxPossibleScore: number;
   pass: boolean;
@@ -327,6 +333,7 @@ export async function finalizeResponse(responseId: string): Promise<{
       Math.floor(
         (Date.now() - ctx.response.startedAt.getTime()) / 1000,
       ),
+    ...(submitIpHash ? { submit_ip_hash: submitIpHash } : {}),
   };
 
   await db

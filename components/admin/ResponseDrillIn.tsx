@@ -400,25 +400,7 @@ export function ResponseDrillIn({
               />
             </dl>
 
-            {/* Session-load count: soft cheating / connectivity signal.
-                1 load = clean run; ≥4 might indicate refreshes worth
-                investigating but never auto-blocking. */}
-            {data.response.metadata.session_loads != null &&
-              data.response.metadata.session_loads > 1 && (
-                <p className="mt-3 text-[0.7rem] text-muted-foreground">
-                  Session loaded{" "}
-                  <strong>{data.response.metadata.session_loads}</strong>{" "}
-                  times
-                  {data.response.metadata.session_loads >= 4 && (
-                    <span className="ml-2 inline-flex items-center rounded-md bg-amber-100 px-1.5 py-0.5 text-[0.65rem] font-medium text-amber-900">
-                      High — possible refresh pattern
-                    </span>
-                  )}
-                  . First load = 1; each refresh / back-nav adds 1.
-                  Common causes: poor connectivity (mobile in the field)
-                  or repeated attempts.
-                </p>
-              )}
+            <IntegritySignals metadata={data.response.metadata} />
 
             {data.viewer.canRunAiPipeline && (
               <CrossCheckPanel
@@ -970,6 +952,86 @@ function OpenEndedReviewBlock({
       {scoreError && (
         <p className="text-[0.7rem] text-destructive">{scoreError}</p>
       )}
+    </div>
+  );
+}
+
+/* ---------- Integrity signals (anti-cheating, soft) ---------- */
+
+type ResponseMetadataShape = {
+  session_loads?: number;
+  tab_blur_count?: number;
+  paste_count?: number;
+  start_ip_hash?: string;
+  submit_ip_hash?: string;
+};
+
+function IntegritySignals({ metadata }: { metadata: ResponseMetadataShape }) {
+  const items: { label: string; value: string; tone: "muted" | "warn" }[] = [];
+
+  if ((metadata.session_loads ?? 0) > 1) {
+    const n = metadata.session_loads ?? 0;
+    items.push({
+      label: "Session loads",
+      value: String(n),
+      tone: n >= 4 ? "warn" : "muted",
+    });
+  }
+  if ((metadata.tab_blur_count ?? 0) > 0) {
+    const n = metadata.tab_blur_count ?? 0;
+    items.push({
+      label: "Tab switches",
+      value: String(n),
+      tone: n >= 3 ? "warn" : "muted",
+    });
+  }
+  if ((metadata.paste_count ?? 0) > 0) {
+    const n = metadata.paste_count ?? 0;
+    items.push({
+      label: "Paste events",
+      value: String(n),
+      tone: n >= 1 ? "warn" : "muted",
+    });
+  }
+  if (
+    metadata.start_ip_hash &&
+    metadata.submit_ip_hash &&
+    metadata.start_ip_hash !== metadata.submit_ip_hash
+  ) {
+    items.push({
+      label: "IP changed",
+      value: "start ≠ submit",
+      tone: "warn",
+    });
+  }
+
+  if (items.length === 0) return null;
+
+  return (
+    <div className="mt-3 rounded-xl border border-dashed border-border bg-background/60 p-3">
+      <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-muted-foreground">
+        Integrity signals
+      </p>
+      <ul className="mt-2 flex flex-wrap gap-2">
+        {items.map((it) => (
+          <li key={it.label}>
+            <span
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[0.7rem]",
+                it.tone === "warn"
+                  ? "bg-amber-100 text-amber-900"
+                  : "bg-muted text-muted-foreground",
+              )}
+            >
+              <span className="font-medium">{it.label}:</span> {it.value}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-[0.65rem] text-muted-foreground">
+        Soft signals only — never auto-blocking. Poor field connectivity
+        can drive loads / tab switches up on legitimate candidates.
+      </p>
     </div>
   );
 }
