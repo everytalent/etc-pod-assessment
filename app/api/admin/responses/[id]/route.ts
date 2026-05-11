@@ -11,7 +11,11 @@ import { asc, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { requireAdminApi, requireEditorApi } from "@/lib/auth/admin";
-import { canRunAiPipeline, canSeeAiScores } from "@/lib/auth/feature-flags";
+import {
+  canRunAiPipeline,
+  canSeeAiScores,
+  loadAiScoringRoles,
+} from "@/lib/auth/feature-flags";
 import { db } from "@/lib/db/client";
 import {
   type AiScore,
@@ -103,12 +107,17 @@ export async function GET(
   const scorerById = new Map(scorerRows.map((s) => [s.id, s]));
 
   const role = auth.session.admin.role;
+  const allowed = await loadAiScoringRoles();
   const enrichedAnswers = answerRows.map((r) => ({
     ...r,
     aiScores: aiByAnswer.get(r.answerId) ?? {},
     scorer: r.scoredBy ? (scorerById.get(r.scoredBy) ?? null) : null,
     // Per-answer flag because assessors only see AI after their own score.
-    canSeeAi: canSeeAiScores({ role, hasOwnScore: Boolean(r.scoredAt) }),
+    canSeeAi: canSeeAiScores({
+      role,
+      hasOwnScore: Boolean(r.scoredAt),
+      allowed,
+    }),
   }));
 
   return NextResponse.json({
@@ -117,7 +126,7 @@ export async function GET(
     viewer: {
       role,
       email: auth.session.email,
-      canRunAiPipeline: canRunAiPipeline(role),
+      canRunAiPipeline: canRunAiPipeline(role, allowed),
     },
   });
 }

@@ -18,7 +18,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireEditorApi } from "@/lib/auth/admin";
-import { canRunAiPipeline } from "@/lib/auth/feature-flags";
+import {
+  canRunAiPipeline,
+  loadAiScoringRoles,
+} from "@/lib/auth/feature-flags";
 import { scoreOpenEnded as geminiScore } from "@/lib/ai/gemini";
 import { scoreOpenEndedKimi as kimiScore } from "@/lib/ai/kimi";
 import type { ScoreSuggestion } from "@/lib/ai/scoring";
@@ -40,7 +43,8 @@ export async function POST(
 ) {
   const auth = await requireEditorApi();
   if (!auth.user) return auth.unauthorized;
-  if (!canRunAiPipeline(auth.session.admin.role)) {
+  const allowed = await loadAiScoringRoles();
+  if (!canRunAiPipeline(auth.session.admin.role, allowed)) {
     return NextResponse.json(
       {
         error: "ai_pipeline_disabled",

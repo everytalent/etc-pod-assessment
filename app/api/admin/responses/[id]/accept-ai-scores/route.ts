@@ -22,7 +22,10 @@ import { NextResponse } from "next/server";
 
 import { computeResponseFinalScore } from "@/lib/assessment/scoring";
 import { requireEditorApi } from "@/lib/auth/admin";
-import { canRunAiPipeline } from "@/lib/auth/feature-flags";
+import {
+  canRunAiPipeline,
+  loadAiScoringRoles,
+} from "@/lib/auth/feature-flags";
 import { db } from "@/lib/db/client";
 import {
   type AiScoreProvider,
@@ -39,7 +42,8 @@ export async function POST(
 ) {
   const auth = await requireEditorApi();
   if (!auth.user) return auth.unauthorized;
-  if (!canRunAiPipeline(auth.session.admin.role)) {
+  const allowed = await loadAiScoringRoles();
+  if (!canRunAiPipeline(auth.session.admin.role, allowed)) {
     return NextResponse.json(
       {
         error: "ai_pipeline_disabled",

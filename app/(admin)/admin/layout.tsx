@@ -67,6 +67,14 @@ export default async function AdminLayout({
                   Users
                 </Link>
               )}
+              {role === "superadmin" && (
+                <Link
+                  href="/admin/settings"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  Settings
+                </Link>
+              )}
             </nav>
           </div>
           <div className="flex items-center gap-3">

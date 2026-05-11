@@ -1,53 +1,71 @@
 /**
- * Feature flag for AI scoring visibility — env-driven so the rollout
- * (superadmin only → admins/editors after 1 month) is one Netlify env
- * change away. No DB migration, no admin UI yet.
+ * AI-scoring visibility flag.
  *
- * Format: AI_SCORING_VISIBLE_TO is a comma-separated list of role names.
- * Default if unset: only superadmin can see AI panels.
+ * Source of truth = the feature_flags row keyed 'ai_scoring_visibility'.
+ * The row's `enabled_for_roles` is a text[] of admin roles allowed to
+ * see / run AI panels. Superadmins flip this in /admin/settings; no
+ * deploy required.
  *
- * Assessor rule is hard-coded because it isn't really a config — the
- * "see AI only after you've scored" behaviour is part of the assessment
- * doctrine, not an experiment knob.
+ * Fallback: if the row is missing (fresh deploys before the migration
+ * runs), we read AI_SCORING_VISIBLE_TO env and default to ['superadmin'].
+ *
+ * Assessor rule remains hard-coded: even when 'assessor' is in the list,
+ * an assessor only sees AI on a given answer AFTER they've saved their
+ * own score on it. That's behaviour doctrine, not config.
  */
 
+import { eq } from "drizzle-orm";
+
 import type { AdminRole } from "@/lib/auth/admin";
+import { db } from "@/lib/db/client";
+import { featureFlags } from "@/lib/db/schema";
 
 const VALID_ROLES: AdminRole[] = ["superadmin", "admin", "editor", "assessor"];
+export const AI_SCORING_FLAG_KEY = "ai_scoring_visibility";
 
-function visibleRoles(): Set<AdminRole> {
-  const raw = process.env.AI_SCORING_VISIBLE_TO ?? "superadmin";
-  const parsed = raw
-    .split(",")
+function parseRoles(values: readonly string[]): AdminRole[] {
+  const out = values
     .map((s) => s.trim().toLowerCase())
     .filter((s): s is AdminRole => (VALID_ROLES as string[]).includes(s));
-  return new Set(parsed.length > 0 ? parsed : (["superadmin"] as AdminRole[]));
+  return out.length > 0 ? out : (["superadmin"] as AdminRole[]);
 }
 
 /**
- * Can `role` see AI score panels for this answer?
- *
- *   - superadmin (and anyone in the env list) → always.
- *   - assessor → only if they've already saved their own score on this
- *     specific answer (`hasOwnScore` true).
- *   - everyone else → only if their role is in the env list.
+ * Load the currently configured set of roles allowed to see AI scores.
+ * Server-only — pulls the feature_flags row, falling back to env.
+ * Callers pass the returned set into canSeeAiScores / canRunAiPipeline
+ * to keep those checks synchronous.
  */
+export async function loadAiScoringRoles(): Promise<Set<AdminRole>> {
+  try {
+    const [row] = await db
+      .select()
+      .from(featureFlags)
+      .where(eq(featureFlags.key, AI_SCORING_FLAG_KEY))
+      .limit(1);
+    if (row) return new Set(parseRoles(row.enabledForRoles));
+  } catch {
+    // Table missing or DB unreachable — fall through to env.
+  }
+  const raw = process.env.AI_SCORING_VISIBLE_TO ?? "superadmin";
+  return new Set(parseRoles(raw.split(",")));
+}
+
 export function canSeeAiScores(args: {
   role: AdminRole;
   hasOwnScore: boolean;
+  allowed: ReadonlySet<AdminRole>;
 }): boolean {
-  const allowed = visibleRoles();
   if (args.role === "assessor") {
-    // Assessors are gated on completing their own grade. The env flag
-    // can include 'assessor' to enable the post-grade reveal; if not
-    // listed, they never see AI even after grading.
-    if (!allowed.has("assessor")) return false;
+    if (!args.allowed.has("assessor")) return false;
     return args.hasOwnScore;
   }
-  return allowed.has(args.role);
+  return args.allowed.has(args.role);
 }
 
-/** True if the current role can run the cross-check pipeline button. */
-export function canRunAiPipeline(role: AdminRole): boolean {
-  return visibleRoles().has(role) && role !== "assessor";
+export function canRunAiPipeline(
+  role: AdminRole,
+  allowed: ReadonlySet<AdminRole>,
+): boolean {
+  return allowed.has(role) && role !== "assessor";
 }

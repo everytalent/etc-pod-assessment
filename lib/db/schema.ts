@@ -144,6 +144,20 @@ export type ResponseMetadata = {
    * attempts, so it's never auto-blocking.
    */
   session_loads?: number;
+  /**
+   * Soft anti-cheating signals. None block the candidate; the drill-in
+   * surfaces them for context and high values warrant a closer review.
+   *  tab_blur_count   — page-visibility losses mid-session (tab switch,
+   *                     app switch, screen lock).
+   *  paste_count      — paste events on open-ended text answers.
+   *  start_ip_hash    — sha-256 hash of the IP at /api/sessions create.
+   *  submit_ip_hash   — sha-256 hash of the IP at finalize. Differing
+   *                     pair = candidate's network changed mid-session.
+   */
+  tab_blur_count?: number;
+  paste_count?: number;
+  start_ip_hash?: string;
+  submit_ip_hash?: string;
 };
 
 /* ---------- Tables ---------- */
@@ -439,8 +453,30 @@ export type Response = typeof responses.$inferSelect;
 export type NewResponse = typeof responses.$inferInsert;
 export type Answer = typeof answers.$inferSelect;
 export type NewAnswer = typeof answers.$inferInsert;
+/**
+ * feature_flags — runtime config keyed by a stable string.
+ *
+ * Today only `ai_scoring_visibility` lives here (which admin roles see
+ * AI panels). DB lookup so a superadmin can flip it without redeploying;
+ * if no row exists, callers fall back to the AI_SCORING_VISIBLE_TO env
+ * var so existing deployments keep working.
+ */
+export const featureFlags = pgTable("feature_flags", {
+  key: text("key").primaryKey(),
+  enabledForRoles: text("enabled_for_roles")
+    .array()
+    .notNull()
+    .default([]),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedBy: uuid("updated_by"),
+});
+
 export type AdminUser = typeof adminUsers.$inferSelect;
 export type NewAdminUser = typeof adminUsers.$inferInsert;
+export type FeatureFlag = typeof featureFlags.$inferSelect;
+export type NewFeatureFlag = typeof featureFlags.$inferInsert;
 export type AiScore = typeof aiScores.$inferSelect;
 export type NewAiScore = typeof aiScores.$inferInsert;
 export type AiConsensus = (typeof aiConsensusEnum.enumValues)[number];
