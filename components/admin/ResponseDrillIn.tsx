@@ -104,12 +104,20 @@ export function ResponseDrillIn({
     | { phase: "running" }
     | {
         phase: "done";
-        result: { accepted: number; skipped: number; provider: string };
+        result: {
+          accepted: number;
+          skipped: number;
+          skipped_manual?: number;
+          provider: string;
+        };
       }
     | { phase: "error"; message: string }
   >({ phase: "idle" });
 
   const runBulkAccept = async () => {
+    // Two-step confirm so the reviewer makes a deliberate choice
+    // about manual scores rather than discovering the behaviour
+    // after the fact.
     if (
       !confirm(
         "Apply every AI suggestion as the human score for this response? You can still tweak any individual answer afterwards.",
@@ -117,11 +125,18 @@ export function ResponseDrillIn({
     ) {
       return;
     }
+    const overrideManual = confirm(
+      "OK = also override answers you've already scored manually.\n\nCancel = keep your manual scores (only apply AI to answers not yet scored).",
+    );
     setBulkAccept({ phase: "running" });
     try {
       const res = await fetch(
         `/api/admin/responses/${responseId}/accept-ai-scores`,
-        { method: "POST", headers: { "Content-Type": "application/json" } },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ override_manual: overrideManual }),
+        },
       );
       const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
       if (!res.ok) {
@@ -643,6 +658,44 @@ function OpenEndedReviewBlock({
     }
   };
 
+  /**
+   * One-click accept of an AI suggestion — fills the score input AND
+   * PATCHes the answer in the same gesture. Reviewers had been
+   * confused by the two-step flow (Use → Save), thinking the button
+   * was broken when only the input updated.
+   */
+  const acceptAiScore = async (
+    value: number,
+    source: "ai_gemini" | "ai_kimi",
+  ) => {
+    if (value < 0 || value > answer.points) {
+      setScoreError(`Score must be between 0 and ${answer.points}.`);
+      return;
+    }
+    setSaving(true);
+    setScoreError(null);
+    setScore(value);
+    setPendingSource(source);
+    try {
+      const res = await fetch(`/api/admin/answers/${answer.answerId}/score`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ score_awarded: value, source }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { message?: string };
+        throw new Error(data.message ?? `failed (${res.status})`);
+      }
+      setSavedAt(new Date().toISOString());
+      setPendingSource("manual");
+      onScored();
+    } catch (err) {
+      setScoreError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const submitScore = async () => {
     if (score < 0 || score > answer.points) {
       setScoreError(`Score must be between 0 and ${answer.points}.`);
@@ -798,10 +851,10 @@ function OpenEndedReviewBlock({
                 provider={providerLabel("gemini")}
                 data={answer.aiScores.gemini}
                 maxPoints={answer.points}
-                onAccept={() => {
-                  setScore(answer.aiScores.gemini!.score);
-                  setPendingSource("ai_gemini");
-                }}
+                onAccept={() =>
+                  void acceptAiScore(answer.aiScores.gemini!.score, "ai_gemini")
+                }
+                accepting={saving && pendingSource === "ai_gemini"}
                 onReassess={() => void reassessOne("gemini")}
                 reassessing={reassessing === "gemini"}
               />
@@ -811,10 +864,10 @@ function OpenEndedReviewBlock({
                 provider={providerLabel("kimi")}
                 data={answer.aiScores.kimi}
                 maxPoints={answer.points}
-                onAccept={() => {
-                  setScore(answer.aiScores.kimi!.score);
-                  setPendingSource("ai_kimi");
-                }}
+                onAccept={() =>
+                  void acceptAiScore(answer.aiScores.kimi!.score, "ai_kimi")
+                }
+                accepting={saving && pendingSource === "ai_kimi"}
                 onReassess={() => void reassessOne("kimi")}
                 reassessing={reassessing === "kimi"}
               />
@@ -1084,6 +1137,7 @@ function PersistedScoreCard({
   data,
   maxPoints,
   onAccept,
+  accepting,
   onReassess,
   reassessing,
 }: {
@@ -1091,6 +1145,7 @@ function PersistedScoreCard({
   data: PersistedAiScore;
   maxPoints: number;
   onAccept: () => void;
+  accepting: boolean;
   onReassess: () => void;
   reassessing: boolean;
 }) {
@@ -1115,14 +1170,15 @@ function PersistedScoreCard({
         <button
           type="button"
           onClick={onAccept}
-          className="inline-flex h-7 items-center rounded-md bg-primary px-2 text-[0.7rem] font-semibold text-primary-foreground hover:opacity-90"
+          disabled={accepting || reassessing}
+          className="inline-flex h-7 items-center rounded-md bg-primary px-2 text-[0.7rem] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
         >
-          Use this score
+          {accepting ? "Saving…" : "Use this score"}
         </button>
         <button
           type="button"
           onClick={onReassess}
-          disabled={reassessing}
+          disabled={reassessing || accepting}
           className="inline-flex h-7 items-center rounded-md border border-border bg-background px-2 text-[0.7rem] hover:border-etc-marigold disabled:opacity-60"
         >
           {reassessing ? "Re-assessing…" : "Re-assess"}
@@ -1276,6 +1332,13 @@ function CrossCheckPanel({
           Applied <strong>{bulkAccept.result.accepted}</strong>{" "}
           {providerShort(bulkAccept.result.provider)} suggestion
           {bulkAccept.result.accepted === 1 ? "" : "s"}.
+          {(bulkAccept.result.skipped_manual ?? 0) > 0 && (
+            <>
+              {" "}Kept <strong>{bulkAccept.result.skipped_manual}</strong>{" "}
+              manual score
+              {bulkAccept.result.skipped_manual === 1 ? "" : "s"} untouched.
+            </>
+          )}
           {bulkAccept.result.skipped > 0 && (
             <> {bulkAccept.result.skipped} answer(s) had no suggestion and were left as-is.</>
           )}

@@ -19,6 +19,7 @@
 
 import { and, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { z } from "zod";
 
 import { computeResponseFinalScore } from "@/lib/assessment/scoring";
 import { requireEditorApi } from "@/lib/auth/admin";
@@ -36,8 +37,17 @@ import {
   responses,
 } from "@/lib/db/schema";
 
+const inputSchema = z
+  .object({
+    // When true, AI scores overwrite even rows that already carry a
+    // manual score. Default false — manual scoring is treated as the
+    // reviewer's intentional override, so bulk-accept respects it.
+    override_manual: z.boolean().optional(),
+  })
+  .optional();
+
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const auth = await requireEditorApi();
@@ -54,6 +64,13 @@ export async function POST(
     );
   }
   const { id } = await params;
+  let body: { override_manual?: boolean } | undefined;
+  try {
+    body = inputSchema.parse(await req.json().catch(() => ({})));
+  } catch {
+    body = undefined;
+  }
+  const overrideManual = body?.override_manual === true;
 
   const [response] = await db
     .select({
@@ -82,8 +99,14 @@ export async function POST(
   const provider: AiScoreProvider =
     response.consensus === "override" ? "kimi" : "gemini";
 
+  // Pull each open-ended answer with its current source so we can
+  // honour the override-manual flag without a second query.
   const openAnswers = await db
-    .select({ id: answers.id })
+    .select({
+      id: answers.id,
+      scoreSource: answers.scoreSource,
+      scoredAt: answers.scoredAt,
+    })
     .from(answers)
     .innerJoin(questions, eq(questions.id, answers.questionId))
     .where(
@@ -92,8 +115,21 @@ export async function POST(
   const openIds = openAnswers.map((a) => a.id);
 
   if (openIds.length === 0) {
-    return NextResponse.json({ accepted: 0, skipped: 0 });
+    return NextResponse.json({
+      accepted: 0,
+      skipped: 0,
+      skipped_manual: 0,
+      override_manual: overrideManual,
+    });
   }
+
+  // Build a quick lookup so the apply loop can branch per row.
+  const sourceByAnswer = new Map(
+    openAnswers.map((a) => [
+      a.id,
+      { scoreSource: a.scoreSource, scoredAt: a.scoredAt },
+    ]),
+  );
 
   const aiRows = await db
     .select({
@@ -107,7 +143,20 @@ export async function POST(
 
   const sourceTag = provider === "kimi" ? "ai_kimi" : "ai_gemini";
   let accepted = 0;
+  let skippedManual = 0;
   for (const row of aiRows) {
+    const existing = sourceByAnswer.get(row.answerId);
+    // Skip if the reviewer has already saved a manual score and the
+    // caller didn't ask to override. Manual score is the reviewer's
+    // intentional override; bulk-accept respects it by default.
+    if (
+      !overrideManual &&
+      existing?.scoreSource === "manual" &&
+      existing.scoredAt !== null
+    ) {
+      skippedManual += 1;
+      continue;
+    }
     await db
       .update(answers)
       .set({
@@ -120,7 +169,9 @@ export async function POST(
     accepted += 1;
   }
 
-  const skipped = openIds.length - accepted;
+  // "skipped" was the legacy field — keep returning it for back-compat
+  // but split out the manual-skip count for the UI to display clearly.
+  const skipped = openIds.length - accepted - skippedManual;
 
   // Recompute response totals + pass once after the loop.
   const allRows = await db
@@ -157,6 +208,8 @@ export async function POST(
   return NextResponse.json({
     accepted,
     skipped,
+    skipped_manual: skippedManual,
+    override_manual: overrideManual,
     provider,
     total_score: final.totalScore,
     max_possible_score: maxPossible,

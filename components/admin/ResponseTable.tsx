@@ -215,6 +215,11 @@ export function ResponseTable({
     ) {
       return;
     }
+    // Second prompt — manual-score handling. Default-skip: cancel
+    // means "don't override manual"; OK means override even those.
+    const overrideManual = confirm(
+      "OK = also override answers that were already scored manually.\n\nCancel = keep manual scores; AI only fills the un-scored answers.",
+    );
     const ids = Array.from(selected);
     setBulkAi({
       phase: "running",
@@ -229,7 +234,11 @@ export function ResponseTable({
       try {
         const res = await fetch(
           `/api/admin/responses/${id}/accept-ai-scores`,
-          { method: "POST", headers: { "Content-Type": "application/json" } },
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ override_manual: overrideManual }),
+          },
         );
         if (!res.ok) {
           const body = (await res.json().catch(() => ({}))) as {
