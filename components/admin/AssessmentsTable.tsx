@@ -44,8 +44,8 @@ export function AssessmentsTable({ rows }: { rows: Row[] }) {
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-card">
-      <table className="w-full text-left text-sm">
+    <div className="overflow-x-auto rounded-2xl border border-border bg-card">
+      <table className="w-full min-w-[640px] text-left text-sm">
         <thead className="border-b border-border bg-muted/40 text-xs uppercase tracking-wider text-muted-foreground">
           <tr>
             <Th className="pl-5">Title</Th>

@@ -79,7 +79,7 @@ export default async function AdminDashboardPage() {
   const pct = (n: number) => (grand > 0 ? Math.round((n * 100) / grand) : 0);
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-10">
+    <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
       <div className="flex items-end justify-between gap-4">
         <div>
           <p className="text-[0.68rem] font-medium uppercase tracking-[0.18em] text-muted-foreground">
