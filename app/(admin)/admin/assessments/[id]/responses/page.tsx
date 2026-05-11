@@ -13,6 +13,10 @@ import { notFound } from "next/navigation";
 import { ResponseTable } from "@/components/admin/ResponseTable";
 import { ZohoExportButton } from "@/components/admin/ZohoExportButton";
 import { CAN, getAdminSession } from "@/lib/auth/admin";
+import {
+  canRunAiPipeline,
+  loadAiScoringRoles,
+} from "@/lib/auth/feature-flags";
 import { db } from "@/lib/db/client";
 import { answers, assessments, responses } from "@/lib/db/schema";
 
@@ -73,6 +77,7 @@ export default async function AssessmentResponsesPage({
   const role = session.admin.role;
   const canDelete = CAN.deleteResponses(role);
   const canExport = CAN.exportResponses(role);
+  const canRunAi = canRunAiPipeline(role, await loadAiScoringRoles());
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-10">
@@ -122,7 +127,7 @@ export default async function AssessmentResponsesPage({
       </div>
 
       <div className="mt-8">
-        <ResponseTable rows={rows} canDelete={canDelete} />
+        <ResponseTable rows={rows} canDelete={canDelete} canRunAi={canRunAi} />
       </div>
     </main>
   );
