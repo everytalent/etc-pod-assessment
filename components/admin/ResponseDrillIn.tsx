@@ -148,7 +148,12 @@ export function ResponseDrillIn({
       }
       setBulkAccept({
         phase: "done",
-        result: body as { accepted: number; skipped: number; provider: string },
+        result: body as {
+          accepted: number;
+          skipped: number;
+          skipped_manual?: number;
+          provider: string;
+        },
       });
       setReload((r) => r + 1);
     } catch (err) {
@@ -1214,7 +1219,12 @@ type BulkAcceptState =
   | { phase: "running" }
   | {
       phase: "done";
-      result: { accepted: number; skipped: number; provider: string };
+      result: {
+        accepted: number;
+        skipped: number;
+        skipped_manual?: number;
+        provider: string;
+      };
     }
   | { phase: "error"; message: string };
 
