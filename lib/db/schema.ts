@@ -321,6 +321,13 @@ export const answers = pgTable(
      * save so the audit trail stays accurate.
      */
     scoreSource: scoreSourceEnum("score_source").notNull().default("manual"),
+    /**
+     * Free-text justification for the current score. Required by the API
+     * whenever score_source = 'manual' (humans must explain their score
+     * for AI-training purposes). For ai_* sources the AI's own rationale
+     * lives on ai_scores.rationale; this column may be null in that case.
+     */
+    scoreRationale: text("score_rationale"),
     answeredAt: timestamp("answered_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -422,6 +429,53 @@ export const aiScoresRelations = relations(aiScores, ({ one }) => ({
 }));
 
 /**
+ * score_history — every prior score on an answer.
+ *
+ * Written by the score PATCH endpoint *before* it overwrites the current
+ * answers row. Captures the value being replaced (score, source, who
+ * scored it, when) plus the rationale that justified it. Lets us:
+ *
+ *   1. Show reviewers a per-answer audit trail of every score that's
+ *      ever been there.
+ *   2. Feed AI training with (answer, rationale → score) tuples,
+ *      including human disagreements that the current row no longer
+ *      reflects.
+ *
+ * Only ever appended to — never updated, never deleted (except via
+ * cascade when the answer itself is deleted).
+ */
+export const scoreHistory = pgTable(
+  "score_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    answerId: uuid("answer_id")
+      .notNull()
+      .references(() => answers.id, { onDelete: "cascade" }),
+    scoreAwarded: integer("score_awarded").notNull(),
+    scoreSource: scoreSourceEnum("score_source").notNull(),
+    scoreRationale: text("score_rationale"),
+    /** admin_users.id of the person whose score this was. */
+    scoredBy: uuid("scored_by"),
+    /** When the score being snapshotted was originally entered. */
+    scoredAt: timestamp("scored_at", { withTimezone: true }),
+    /** When the new score overwrote this one (i.e. when this row was written). */
+    replacedAt: timestamp("replaced_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    /** admin_users.id of the person whose action created this history row. */
+    replacedBy: uuid("replaced_by"),
+  },
+  (t) => [index("score_history_answer_idx").on(t.answerId, t.replacedAt)],
+);
+
+export const scoreHistoryRelations = relations(scoreHistory, ({ one }) => ({
+  answer: one(answers, {
+    fields: [scoreHistory.answerId],
+    references: [answers.id],
+  }),
+}));
+
+/**
  * admin_users — allowlist of emails that may sign in to /admin.
  *
  * Bootstrap row: ugo@energytalentco.com with role='superadmin'.
@@ -479,6 +533,8 @@ export type FeatureFlag = typeof featureFlags.$inferSelect;
 export type NewFeatureFlag = typeof featureFlags.$inferInsert;
 export type AiScore = typeof aiScores.$inferSelect;
 export type NewAiScore = typeof aiScores.$inferInsert;
+export type ScoreHistoryRow = typeof scoreHistory.$inferSelect;
+export type NewScoreHistoryRow = typeof scoreHistory.$inferInsert;
 export type AiConsensus = (typeof aiConsensusEnum.enumValues)[number];
 export type AiScoreProvider = (typeof aiScoreProviderEnum.enumValues)[number];
 export type ScoreSource = (typeof scoreSourceEnum.enumValues)[number];

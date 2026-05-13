@@ -43,6 +43,13 @@
       "when": 1778576934788,
       "tag": "0005_magenta_the_hunter",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1778686481655,
+      "tag": "0006_mean_serpent_society",
+      "breakpoints": true
     }
   ]
 }

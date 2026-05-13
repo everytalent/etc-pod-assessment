@@ -29,6 +29,18 @@ type AdminRoleClient = "superadmin" | "admin" | "editor" | "assessor";
 
 type Scorer = { id: string; email: string; role: AdminRoleClient } | null;
 
+type ScoreHistoryRow = {
+  scoreAwarded: number;
+  scoreSource: "manual" | "ai_gemini" | "ai_kimi";
+  scoreRationale: string | null;
+  scoredBy: string | null;
+  scoredAt: string | null;
+  replacedAt: string;
+  replacedBy: string | null;
+  scorer: Scorer;
+  replacedByUser: Scorer;
+};
+
 type AnswerRow = {
   answerId: string;
   questionId: string;
@@ -45,6 +57,8 @@ type AnswerRow = {
   scoredBy: string | null;
   scoredAt: string | null;
   scoreSource: "manual" | "ai_gemini" | "ai_kimi";
+  scoreRationale: string | null;
+  history: ScoreHistoryRow[];
   timeSpentSeconds: number;
   timedOut: boolean;
   scoreAwarded: number;
@@ -523,11 +537,13 @@ function OpenEndedReviewBlock({
   const [audioLoading, setAudioLoading] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
   const [score, setScore] = useState<number>(answer.scoreAwarded);
+  const [rationale, setRationale] = useState<string>(answer.scoreRationale ?? "");
   const [saving, setSaving] = useState(false);
   const [scoreError, setScoreError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(
     answer.scoredAt,
   );
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [transcript, setTranscript] = useState<string | null>(answer.transcript);
   const [transcribing, setTranscribing] = useState(false);
   const [transcribeError, setTranscribeError] = useState<string | null>(null);
@@ -693,6 +709,10 @@ function OpenEndedReviewBlock({
       }
       setSavedAt(new Date().toISOString());
       setPendingSource("manual");
+      // We didn't send a rationale on accept (the AI's own rationale stands
+      // in), so clear the local field — leaving stale text would be confusing
+      // since it didn't actually save with this score.
+      setRationale("");
       onScored();
     } catch (err) {
       setScoreError(err instanceof Error ? err.message : "Save failed");
@@ -706,6 +726,13 @@ function OpenEndedReviewBlock({
       setScoreError(`Score must be between 0 and ${answer.points}.`);
       return;
     }
+    // Manual scores need a written justification. Accepting an AI score
+    // (pendingSource = ai_*) uses the AI's own rationale and so doesn't
+    // require one from the reviewer.
+    if (pendingSource === "manual" && rationale.trim().length === 0) {
+      setScoreError("Add a short rationale before saving.");
+      return;
+    }
     setSaving(true);
     setScoreError(null);
     try {
@@ -715,6 +742,7 @@ function OpenEndedReviewBlock({
         body: JSON.stringify({
           score_awarded: score,
           source: pendingSource,
+          rationale: rationale.trim() || undefined,
         }),
       });
       if (!res.ok) {
@@ -1004,11 +1032,73 @@ function OpenEndedReviewBlock({
           </span>
         )}
       </div>
+      {/* Reviewer rationale. Required when source = manual (validated client-
+          and server-side). For ai_* sources the AI's own rationale is the
+          authoritative note; this field is optional context. */}
+      <label className="mt-2 flex flex-col gap-1 text-xs">
+        <span className="font-medium">
+          Your rationale{" "}
+          <span className="text-muted-foreground">
+            ({pendingSource === "manual" ? "required" : "optional"})
+          </span>
+        </span>
+        <textarea
+          value={rationale}
+          onChange={(e) => setRationale(e.target.value)}
+          rows={3}
+          placeholder="What earned this score? Note anything an assessor (or the AI later) would want to know."
+          className="w-full rounded-lg border border-input bg-background px-2 py-1.5 text-xs focus-visible:border-etc-marigold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-etc-marigold"
+        />
+      </label>
       {reassessError && (
         <p className="text-[0.7rem] text-destructive">{reassessError}</p>
       )}
       {scoreError && (
         <p className="text-[0.7rem] text-destructive">{scoreError}</p>
+      )}
+      {answer.history.length > 0 && (
+        <div className="rounded-lg border border-dashed border-border bg-muted/30">
+          <button
+            type="button"
+            onClick={() => setHistoryOpen((v) => !v)}
+            className="flex w-full items-center justify-between px-3 py-2 text-[0.7rem] font-medium text-muted-foreground hover:text-foreground"
+          >
+            <span>
+              Prior scores ({answer.history.length})
+            </span>
+            <span>{historyOpen ? "−" : "+"}</span>
+          </button>
+          {historyOpen && (
+            <ul className="divide-y divide-border border-t border-border">
+              {answer.history.map((h, i) => (
+                <li key={i} className="flex flex-col gap-1 px-3 py-2 text-[0.7rem]">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono tabular-nums">
+                      {h.scoreAwarded}/{answer.points}
+                    </span>
+                    <SourceBadge source={h.scoreSource} />
+                    {h.scorer && (
+                      <span className="text-muted-foreground">
+                        by <strong>{h.scorer.email}</strong>
+                      </span>
+                    )}
+                    <span className="text-muted-foreground">
+                      · replaced {new Date(h.replacedAt).toLocaleString()}
+                      {h.replacedByUser && (
+                        <> by <strong>{h.replacedByUser.email}</strong></>
+                      )}
+                    </span>
+                  </div>
+                  {h.scoreRationale && (
+                    <p className="whitespace-pre-wrap text-muted-foreground">
+                      {h.scoreRationale}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
     </div>
   );

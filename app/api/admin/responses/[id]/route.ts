@@ -7,7 +7,7 @@
  * not the candidate UI.
  */
 
-import { asc, eq, inArray } from "drizzle-orm";
+import { asc, desc, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { requireAdminApi, requireEditorApi } from "@/lib/auth/admin";
@@ -25,6 +25,7 @@ import {
   answers,
   questions,
   responses,
+  scoreHistory,
 } from "@/lib/db/schema";
 
 export async function GET(
@@ -59,6 +60,7 @@ export async function GET(
       timedOut: answers.timedOut,
       scoreAwarded: answers.scoreAwarded,
       scoreSource: answers.scoreSource,
+      scoreRationale: answers.scoreRationale,
       answeredAt: answers.answeredAt,
       questionText: questions.questionText,
       questionType: questions.type,
@@ -89,10 +91,43 @@ export async function GET(
     aiByAnswer.set(row.answerId, bucket);
   }
 
+  // Score history per answer — every prior score (most recent first).
+  // Drives the "Prior scores" collapsible in the drill-in.
+  const historyRows = answerIds.length
+    ? await db
+        .select({
+          answerId: scoreHistory.answerId,
+          scoreAwarded: scoreHistory.scoreAwarded,
+          scoreSource: scoreHistory.scoreSource,
+          scoreRationale: scoreHistory.scoreRationale,
+          scoredBy: scoreHistory.scoredBy,
+          scoredAt: scoreHistory.scoredAt,
+          replacedAt: scoreHistory.replacedAt,
+          replacedBy: scoreHistory.replacedBy,
+        })
+        .from(scoreHistory)
+        .where(inArray(scoreHistory.answerId, answerIds))
+        .orderBy(desc(scoreHistory.replacedAt))
+    : [];
+  const historyByAnswer = new Map<string, typeof historyRows>();
+  for (const row of historyRows) {
+    const bucket = historyByAnswer.get(row.answerId) ?? [];
+    bucket.push(row);
+    historyByAnswer.set(row.answerId, bucket);
+  }
+
   // Attribute each scored answer to the person who saved it. Looking up
   // every scoredBy uuid in one round-trip and then mapping in memory.
+  // Also includes anyone who replaced a score (history.replacedBy) and
+  // anyone whose score appears in history (history.scoredBy) so the UI
+  // can render attribution on prior-score rows too.
   const scorerIds = Array.from(
-    new Set(answerRows.map((r) => r.scoredBy).filter((v): v is string => Boolean(v))),
+    new Set(
+      [
+        ...answerRows.map((r) => r.scoredBy),
+        ...historyRows.flatMap((h) => [h.scoredBy, h.replacedBy]),
+      ].filter((v): v is string => Boolean(v)),
+    ),
   );
   const scorerRows = scorerIds.length
     ? await db
@@ -112,6 +147,13 @@ export async function GET(
     ...r,
     aiScores: aiByAnswer.get(r.answerId) ?? {},
     scorer: r.scoredBy ? (scorerById.get(r.scoredBy) ?? null) : null,
+    history: (historyByAnswer.get(r.answerId) ?? []).map((h) => ({
+      ...h,
+      scorer: h.scoredBy ? (scorerById.get(h.scoredBy) ?? null) : null,
+      replacedByUser: h.replacedBy
+        ? (scorerById.get(h.replacedBy) ?? null)
+        : null,
+    })),
     // Per-answer flag because assessors only see AI after their own score.
     canSeeAi: canSeeAiScores({
       role,
