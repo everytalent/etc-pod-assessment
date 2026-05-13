@@ -455,6 +455,14 @@ export const aiScores = pgTable(
     hits: jsonb("hits").$type<string[]>().notNull().default([]),
     misses: jsonb("misses").$type<string[]>().notNull().default([]),
     redFlags: jsonb("red_flags").$type<string[]>().notNull().default([]),
+    /**
+     * AI's cheating-risk read on the answer (low / mid / high). Stored
+     * separately from answers.integrity_level so the model's proposal is
+     * auditable even after a human overrides it. Null = the model didn't
+     * return one (older rows, prompts that don't ask for it).
+     */
+    integrityProposal: integrityLevelEnum("integrity_proposal"),
+    integrityProposalRationale: text("integrity_proposal_rationale"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

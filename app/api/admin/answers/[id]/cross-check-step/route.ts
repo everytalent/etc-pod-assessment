@@ -17,6 +17,7 @@ import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { recomputeResponseTotals } from "@/lib/assessment/recompute";
 import { requireEditorApi } from "@/lib/auth/admin";
 import {
   canRunAiPipeline,
@@ -65,12 +66,14 @@ export async function POST(
   const [row] = await db
     .select({
       id: answers.id,
+      responseId: answers.responseId,
       transcript: answers.transcript,
       textResponse: answers.textResponse,
       questionType: questions.type,
       questionText: questions.questionText,
       rubric: questions.scoringRubric,
       points: questions.points,
+      integrityLevelSource: answers.integrityLevelSource,
     })
     .from(answers)
     .innerJoin(questions, eq(questions.id, answers.questionId))
@@ -137,7 +140,32 @@ export async function POST(
     hits: suggestion.hits,
     misses: suggestion.misses,
     redFlags: suggestion.redFlagsTriggered,
+    integrityProposal: suggestion.integrityProposal ?? null,
+    integrityProposalRationale: suggestion.integrityProposalRationale ?? null,
   });
+
+  // Kimi is "second assessor" — if it proposes an integrity level and no
+  // human has set one (the source is null or already ai_kimi from an
+  // earlier run), apply the proposal to the answer with source=ai_kimi.
+  // Human overrides flip the source to 'manual' (see /integrity), which
+  // we never overwrite from here.
+  if (
+    provider === "kimi" &&
+    suggestion.integrityProposal &&
+    (row.integrityLevelSource === null || row.integrityLevelSource === "ai_kimi")
+  ) {
+    await db
+      .update(answers)
+      .set({
+        integrityLevel: suggestion.integrityProposal,
+        integrityLevelSource: "ai_kimi",
+        integrityLevelSetBy: null,
+        integrityLevelSetAt: new Date(),
+      })
+      .where(eq(answers.id, id));
+    // Total may have changed if mid/high was just applied; recompute.
+    await recomputeResponseTotals(row.responseId);
+  }
 
   return NextResponse.json({
     answerId: id,
