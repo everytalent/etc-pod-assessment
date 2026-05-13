@@ -284,6 +284,17 @@ export const responses = pgTable(
      */
     aiConsensus: aiConsensusEnum("ai_consensus").notNull().default("pending"),
     aiPipelineRanAt: timestamp("ai_pipeline_ran_at", { withTimezone: true }),
+    /**
+     * Response-level cheating deduction (0–100). Applied after per-answer
+     * integrity penalties, so the final total = (integrity-adjusted sum)
+     * × (1 − pct/100). Null = no response-level deduction.
+     */
+    integrityDeductionPct: integer("integrity_deduction_pct"),
+    integrityDeductionRationale: text("integrity_deduction_rationale"),
+    integrityDeductionSetBy: uuid("integrity_deduction_set_by"),
+    integrityDeductionSetAt: timestamp("integrity_deduction_set_at", {
+      withTimezone: true,
+    }),
   },
   (t) => [index("responses_assessment_id_idx").on(t.assessmentId)],
 );

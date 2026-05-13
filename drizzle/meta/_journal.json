@@ -57,6 +57,13 @@
       "when": 1778691483148,
       "tag": "0007_dear_nebula",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1778694030415,
+      "tag": "0008_condemned_komodo",
+      "breakpoints": true
     }
   ]
 }

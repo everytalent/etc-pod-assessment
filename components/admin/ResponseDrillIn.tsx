@@ -441,6 +441,14 @@ export function ResponseDrillIn({
 
             <IntegritySignals metadata={data.response.metadata} />
 
+            <IntegrityDeductionPanel
+              responseId={responseId}
+              initialPct={data.response.integrityDeductionPct ?? null}
+              initialRationale={data.response.integrityDeductionRationale ?? ""}
+              canEdit={data.viewer.role !== "assessor"}
+              onSaved={() => setReload((r) => r + 1)}
+            />
+
             {data.viewer.canRunAiPipeline && (
               <CrossCheckPanel
                 consensus={data.response.aiConsensus}
@@ -1323,6 +1331,133 @@ function IntegritySignals({ metadata }: { metadata: ResponseMetadataShape }) {
         Soft signals only — never auto-blocking. Poor field connectivity
         can drive loads / tab switches up on legitimate candidates.
       </p>
+    </div>
+  );
+}
+
+/* ---------- Response-level integrity deduction ---------- */
+
+function IntegrityDeductionPanel({
+  responseId,
+  initialPct,
+  initialRationale,
+  canEdit,
+  onSaved,
+}: {
+  responseId: string;
+  initialPct: number | null;
+  initialRationale: string;
+  canEdit: boolean;
+  onSaved: () => void;
+}) {
+  const [pct, setPct] = useState<string>(
+    initialPct === null ? "" : String(initialPct),
+  );
+  const [rationale, setRationale] = useState<string>(initialRationale);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async (clear = false) => {
+    setSaving(true);
+    setError(null);
+    try {
+      const body = clear
+        ? { pct: null }
+        : (() => {
+            const n = Number(pct);
+            if (!Number.isInteger(n) || n < 0 || n > 100) {
+              throw new Error("Enter a whole number between 0 and 100.");
+            }
+            return { pct: n, rationale: rationale.trim() || undefined };
+          })();
+      const res = await fetch(
+        `/api/admin/responses/${responseId}/integrity-deduction`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { message?: string };
+        throw new Error(data.message ?? `failed (${res.status})`);
+      }
+      if (clear) {
+        setPct("");
+        setRationale("");
+      }
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 rounded-xl border border-dashed border-border bg-background/60 p-3">
+      <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-muted-foreground">
+        Response integrity deduction
+      </p>
+      <p className="mt-1 text-[0.65rem] text-muted-foreground">
+        Whole-response cheating penalty as a percentage of the total. Applied
+        on top of any per-question integrity tags.
+      </p>
+      <div className="mt-2 flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1 text-[0.7rem]">
+          <span className="font-medium">% deducted</span>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            disabled={!canEdit || saving}
+            value={pct}
+            onChange={(e) => setPct(e.target.value)}
+            placeholder="0–100"
+            className="h-8 w-24 rounded-lg border border-input bg-background px-2 text-xs tabular-nums focus-visible:border-etc-marigold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-etc-marigold disabled:opacity-60"
+          />
+        </label>
+        <label className="flex min-w-[12rem] flex-1 flex-col gap-1 text-[0.7rem]">
+          <span className="font-medium">
+            Rationale <span className="text-muted-foreground">(optional)</span>
+          </span>
+          <input
+            type="text"
+            disabled={!canEdit || saving}
+            value={rationale}
+            onChange={(e) => setRationale(e.target.value)}
+            placeholder="e.g. IP changed mid-assessment + 5 tab switches"
+            className="h-8 rounded-lg border border-input bg-background px-2 text-xs focus-visible:border-etc-marigold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-etc-marigold disabled:opacity-60"
+          />
+        </label>
+        <button
+          type="button"
+          disabled={!canEdit || saving}
+          onClick={() => void save(false)}
+          className="inline-flex h-8 items-center rounded-lg bg-primary px-3 text-[0.7rem] font-semibold text-primary-foreground disabled:opacity-60"
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+        {initialPct !== null && canEdit && (
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => void save(true)}
+            className="inline-flex h-8 items-center rounded-lg border border-border bg-background px-3 text-[0.7rem] hover:border-etc-marigold disabled:opacity-60"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      {error && (
+        <p className="mt-1 text-[0.65rem] text-destructive">{error}</p>
+      )}
+      {!canEdit && (
+        <p className="mt-1 text-[0.65rem] text-muted-foreground">
+          Editor+ can set the response-level deduction. Assessors only tag
+          individual answers.
+        </p>
+      )}
     </div>
   );
 }

@@ -65,6 +65,7 @@ export async function recomputeResponseTotals(
     .select({
       passThreshold: assessments.passThreshold,
       status: responses.status,
+      integrityDeductionPct: responses.integrityDeductionPct,
     })
     .from(responses)
     .innerJoin(assessments, eq(assessments.id, responses.assessmentId))
@@ -79,8 +80,17 @@ export async function recomputeResponseTotals(
     return { totalAwarded, maxPossible, totalAnswered, updated: false };
   }
 
+  // Response-level integrity deduction applies on top of per-answer
+  // adjustments. Floor at 0 — a punitive deduction shouldn't drive the
+  // total below zero in the dashboard summary.
+  const pct = responseRow.integrityDeductionPct ?? 0;
+  const adjustedTotal = Math.max(
+    0,
+    Math.round(totalAwarded - (totalAwarded * pct) / 100),
+  );
+
   const final = computeResponseFinalScore(
-    [totalAwarded],
+    [adjustedTotal],
     maxPossible,
     responseRow.passThreshold,
   );
@@ -93,5 +103,5 @@ export async function recomputeResponseTotals(
     })
     .where(eq(responses.id, responseId));
 
-  return { totalAwarded, maxPossible, totalAnswered, updated: true };
+  return { totalAwarded: adjustedTotal, maxPossible, totalAnswered, updated: true };
 }
