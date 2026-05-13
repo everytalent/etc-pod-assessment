@@ -90,6 +90,25 @@ export const aiConsensusEnum = pgEnum("ai_consensus", [
   "agree",
   "override",
 ]);
+
+/**
+ * Per-answer cheating-risk tag, applied on top of the raw score:
+ *   low   — flagged but no penalty; "we noticed but it looks fine"
+ *   mid   — strong concern; answer's contribution to the total is zeroed
+ *   high  — clear concern; -1 point on this answer's contribution
+ * Set by a human reviewer (default) or proposed by Kimi (Phase 5); the
+ * source column on `answers` tracks who/what set the current value.
+ */
+export const integrityLevelEnum = pgEnum("integrity_level", [
+  "low",
+  "mid",
+  "high",
+]);
+export const integritySourceEnum = pgEnum("integrity_source", [
+  "manual",
+  "ai_kimi",
+  "ai_gemini",
+]);
 /**
  * Admin role tiers (least → most privileged on user management):
  *   assessor   — read responses + score open-ended only.
@@ -328,6 +347,20 @@ export const answers = pgTable(
      * lives on ai_scores.rationale; this column may be null in that case.
      */
     scoreRationale: text("score_rationale"),
+    /**
+     * Cheating-risk tag on this answer (null = unset, no penalty).
+     *   low  → labelled only, no scoring effect
+     *   mid  → answer's contribution to the total is zeroed
+     *   high → -1 from this answer's contribution
+     * Applied at total-score recompute; raw score_awarded is untouched so
+     * the assessor's actual grading judgement is preserved.
+     */
+    integrityLevel: integrityLevelEnum("integrity_level"),
+    integrityLevelSource: integritySourceEnum("integrity_level_source"),
+    integrityLevelSetBy: uuid("integrity_level_set_by"),
+    integrityLevelSetAt: timestamp("integrity_level_set_at", {
+      withTimezone: true,
+    }),
     answeredAt: timestamp("answered_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -535,6 +568,8 @@ export type AiScore = typeof aiScores.$inferSelect;
 export type NewAiScore = typeof aiScores.$inferInsert;
 export type ScoreHistoryRow = typeof scoreHistory.$inferSelect;
 export type NewScoreHistoryRow = typeof scoreHistory.$inferInsert;
+export type IntegrityLevel = (typeof integrityLevelEnum.enumValues)[number];
+export type IntegritySource = (typeof integritySourceEnum.enumValues)[number];
 export type AiConsensus = (typeof aiConsensusEnum.enumValues)[number];
 export type AiScoreProvider = (typeof aiScoreProviderEnum.enumValues)[number];
 export type ScoreSource = (typeof scoreSourceEnum.enumValues)[number];

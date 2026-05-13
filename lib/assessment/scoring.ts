@@ -13,7 +13,7 @@
  * Pure module — no DB, no I/O. The DB-bound `finalizeResponse` lives in engine.ts.
  */
 
-import type { Question } from "@/lib/db/schema";
+import type { IntegrityLevel, Question } from "@/lib/db/schema";
 
 type ScorableQuestion = Pick<
   Question,
@@ -55,6 +55,25 @@ export function scoreAnswer(
   return isCorrectAnswer(question, selected)
     ? question.points
     : -question.negativePoints;
+}
+
+/**
+ * Apply the integrity-level penalty to a single answer's raw score.
+ *
+ *   null / 'low' → no change (low is informational only)
+ *   'mid'        → 0 (this answer doesn't count)
+ *   'high'       → score - 1 (one-point penalty, may go negative)
+ *
+ * Raw score_awarded is never mutated; this is only used at total-roll-up
+ * time so the assessor's grading judgement is preserved in the DB.
+ */
+export function applyIntegrityToAnswer(
+  scoreAwarded: number,
+  integrityLevel: IntegrityLevel | null,
+): number {
+  if (integrityLevel === "mid") return 0;
+  if (integrityLevel === "high") return scoreAwarded - 1;
+  return scoreAwarded;
 }
 
 /**

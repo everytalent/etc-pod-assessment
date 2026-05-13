@@ -61,6 +61,10 @@ export async function GET(
       scoreAwarded: answers.scoreAwarded,
       scoreSource: answers.scoreSource,
       scoreRationale: answers.scoreRationale,
+      integrityLevel: answers.integrityLevel,
+      integrityLevelSource: answers.integrityLevelSource,
+      integrityLevelSetBy: answers.integrityLevelSetBy,
+      integrityLevelSetAt: answers.integrityLevelSetAt,
       answeredAt: answers.answeredAt,
       questionText: questions.questionText,
       questionType: questions.type,
@@ -125,6 +129,7 @@ export async function GET(
     new Set(
       [
         ...answerRows.map((r) => r.scoredBy),
+        ...answerRows.map((r) => r.integrityLevelSetBy),
         ...historyRows.flatMap((h) => [h.scoredBy, h.replacedBy]),
       ].filter((v): v is string => Boolean(v)),
     ),
@@ -147,6 +152,9 @@ export async function GET(
     ...r,
     aiScores: aiByAnswer.get(r.answerId) ?? {},
     scorer: r.scoredBy ? (scorerById.get(r.scoredBy) ?? null) : null,
+    integrityLevelSetByUser: r.integrityLevelSetBy
+      ? (scorerById.get(r.integrityLevelSetBy) ?? null)
+      : null,
     history: (historyByAnswer.get(r.answerId) ?? []).map((h) => ({
       ...h,
       scorer: h.scoredBy ? (scorerById.get(h.scoredBy) ?? null) : null,

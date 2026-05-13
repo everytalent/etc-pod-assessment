@@ -58,6 +58,11 @@ type AnswerRow = {
   scoredAt: string | null;
   scoreSource: "manual" | "ai_gemini" | "ai_kimi";
   scoreRationale: string | null;
+  integrityLevel: "low" | "mid" | "high" | null;
+  integrityLevelSource: "manual" | "ai_kimi" | "ai_gemini" | null;
+  integrityLevelSetBy: string | null;
+  integrityLevelSetAt: string | null;
+  integrityLevelSetByUser: Scorer;
   history: ScoreHistoryRow[];
   timeSpentSeconds: number;
   timedOut: boolean;
@@ -544,6 +549,36 @@ function OpenEndedReviewBlock({
     answer.scoredAt,
   );
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [integrityLevel, setIntegrityLevel] = useState<
+    "low" | "mid" | "high" | null
+  >(answer.integrityLevel);
+  const [integritySaving, setIntegritySaving] = useState(false);
+  const [integrityError, setIntegrityError] = useState<string | null>(null);
+
+  const setIntegrity = async (level: "low" | "mid" | "high" | null) => {
+    setIntegritySaving(true);
+    setIntegrityError(null);
+    try {
+      const res = await fetch(
+        `/api/admin/answers/${answer.answerId}/integrity`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ level, source: "manual" }),
+        },
+      );
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { message?: string };
+        throw new Error(data.message ?? `failed (${res.status})`);
+      }
+      setIntegrityLevel(level);
+      onScored();
+    } catch (err) {
+      setIntegrityError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setIntegritySaving(false);
+    }
+  };
 
   /**
    * Most recent manual score: the current row if its source is manual,
@@ -1098,6 +1133,72 @@ function OpenEndedReviewBlock({
       {scoreError && (
         <p className="text-[0.7rem] text-destructive">{scoreError}</p>
       )}
+      {/* Integrity tag (cheating-risk dimension). Independent of the score
+          itself — high = -1 from this answer's contribution to the total,
+          mid = zeroes the contribution, low = labelled only. Stored on the
+          answer; recompute runs server-side on every PATCH. */}
+      <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-muted-foreground">
+            Integrity tag
+          </p>
+          {integrityLevel && answer.integrityLevelSource === "ai_kimi" && (
+            <span className="rounded-md bg-etc-marigold/30 px-1.5 py-0.5 text-[0.65rem] text-etc-black">
+              AI-suggested
+            </span>
+          )}
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {(["low", "mid", "high"] as const).map((lvl) => {
+            const selected = integrityLevel === lvl;
+            return (
+              <button
+                key={lvl}
+                type="button"
+                disabled={integritySaving}
+                onClick={() => void setIntegrity(selected ? null : lvl)}
+                className={cn(
+                  "inline-flex h-7 items-center rounded-md border px-2 text-[0.7rem] font-medium disabled:opacity-60",
+                  selected
+                    ? lvl === "high"
+                      ? "border-destructive bg-destructive text-destructive-foreground"
+                      : lvl === "mid"
+                        ? "border-amber-500 bg-amber-500 text-white"
+                        : "border-etc-marigold bg-etc-marigold text-etc-black"
+                    : "border-border bg-background hover:border-etc-marigold",
+                )}
+              >
+                {lvl === "high"
+                  ? "High (−1)"
+                  : lvl === "mid"
+                    ? "Mid (0)"
+                    : "Low"}
+              </button>
+            );
+          })}
+          {integrityLevel && (
+            <button
+              type="button"
+              disabled={integritySaving}
+              onClick={() => void setIntegrity(null)}
+              className="inline-flex h-7 items-center rounded-md border border-border bg-background px-2 text-[0.65rem] text-muted-foreground hover:border-etc-marigold disabled:opacity-60"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        {answer.integrityLevelSetByUser && integrityLevel && (
+          <p className="mt-1.5 text-[0.65rem] text-muted-foreground">
+            Set by {answer.integrityLevelSetByUser.email}
+            {answer.integrityLevelSetAt && (
+              <> · {new Date(answer.integrityLevelSetAt).toLocaleString()}</>
+            )}
+          </p>
+        )}
+        {integrityError && (
+          <p className="mt-1 text-[0.65rem] text-destructive">{integrityError}</p>
+        )}
+      </div>
       {answer.history.length > 0 && (
         <div className="rounded-lg border border-dashed border-border bg-muted/30">
           <button

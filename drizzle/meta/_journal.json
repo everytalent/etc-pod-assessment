@@ -50,6 +50,13 @@
       "when": 1778686481655,
       "tag": "0006_mean_serpent_society",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1778691483148,
+      "tag": "0007_dear_nebula",
+      "breakpoints": true
     }
   ]
 }

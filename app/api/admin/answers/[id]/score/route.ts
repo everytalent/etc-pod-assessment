@@ -9,20 +9,14 @@
  * superadmins to score, swap to requireSuperAdminApi.
  */
 
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { computeResponseFinalScore } from "@/lib/assessment/scoring";
+import { recomputeResponseTotals } from "@/lib/assessment/recompute";
 import { requireAdminApi } from "@/lib/auth/admin";
 import { db } from "@/lib/db/client";
-import {
-  answers,
-  assessments,
-  questions,
-  responses,
-  scoreHistory,
-} from "@/lib/db/schema";
+import { answers, questions, scoreHistory } from "@/lib/db/schema";
 
 const inputSchema = z.object({
   score_awarded: z.number().int(),
@@ -133,66 +127,15 @@ export async function PATCH(
     })
     .where(eq(answers.id, id));
 
-  // Recompute the parent response's total_score + pass.
-  const [{ totalAwarded, totalAnswered }] = await db
-    .select({
-      totalAwarded: sql<number>`COALESCE(SUM(${answers.scoreAwarded}), 0)::int`,
-      totalAnswered: sql<number>`COUNT(*)::int`,
-    })
-    .from(answers)
-    .where(eq(answers.responseId, answer.responseId));
-
-  // max_possible_score is the snapshot of questions the candidate was shown
-  // (i.e., questions that have an answer row).
-  const [{ maxPossible }] = await db
-    .select({
-      maxPossible: sql<number>`COALESCE(SUM(${questions.points}), 0)::int`,
-    })
-    .from(answers)
-    .innerJoin(questions, eq(questions.id, answers.questionId))
-    .where(eq(answers.responseId, answer.responseId));
-
-  // Look up pass threshold via the response → assessment.
-  const [response] = await db
-    .select({
-      assessmentId: responses.assessmentId,
-      passThreshold: assessments.passThreshold,
-      status: responses.status,
-    })
-    .from(responses)
-    .innerJoin(assessments, eq(assessments.id, responses.assessmentId))
-    .where(eq(responses.id, answer.responseId))
-    .limit(1);
-  if (!response) {
-    return NextResponse.json({ error: "response_missing" }, { status: 500 });
-  }
-
-  // Only update totals when response is finalised — in_progress responses
-  // get totals computed at submit time anyway.
-  if (response.status !== "in_progress") {
-    const final = computeResponseFinalScore(
-      // We don't have the per-answer awarded array here, but we already
-      // summed it above as totalAwarded. computeResponseFinalScore wants
-      // an array — pass a single-entry equivalent.
-      [totalAwarded],
-      maxPossible,
-      response.passThreshold,
-    );
-    await db
-      .update(responses)
-      .set({
-        totalScore: final.totalScore,
-        maxPossibleScore: maxPossible,
-        pass: final.pass,
-      })
-      .where(eq(responses.id, answer.responseId));
-  }
+  // Recompute the parent response's totals via the shared helper, which
+  // applies integrity penalties and gates on response status.
+  const totals = await recomputeResponseTotals(answer.responseId);
 
   return NextResponse.json({
     answer_id: id,
     score_awarded: input.score_awarded,
-    response_total_answered: totalAnswered,
-    response_total_score: totalAwarded,
-    max_possible: maxPossible,
+    response_total_answered: totals.totalAnswered,
+    response_total_score: totals.totalAwarded,
+    max_possible: totals.maxPossible,
   });
 }
