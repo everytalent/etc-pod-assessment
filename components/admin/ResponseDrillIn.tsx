@@ -544,6 +544,38 @@ function OpenEndedReviewBlock({
     answer.scoredAt,
   );
   const [historyOpen, setHistoryOpen] = useState(false);
+
+  /**
+   * Most recent manual score: the current row if its source is manual,
+   * otherwise the most recent score_history row with source=manual.
+   * Used to render the Human card alongside AI cards so reviewers can
+   * compare side-by-side even when the live score is an accepted AI value.
+   */
+  type LatestHuman = {
+    score: number;
+    rationale: string | null;
+    scorer: Scorer;
+    at: string | null;
+  } | null;
+  const latestHumanScore: LatestHuman =
+    answer.scoreSource === "manual" && answer.scoredAt
+      ? {
+          score: answer.scoreAwarded,
+          rationale: answer.scoreRationale,
+          scorer: answer.scorer,
+          at: answer.scoredAt,
+        }
+      : (() => {
+          const h = answer.history.find((x) => x.scoreSource === "manual");
+          return h
+            ? {
+                score: h.scoreAwarded,
+                rationale: h.scoreRationale,
+                scorer: h.scorer,
+                at: h.scoredAt,
+              }
+            : null;
+        })();
   const [transcript, setTranscript] = useState<string | null>(answer.transcript);
   const [transcribing, setTranscribing] = useState(false);
   const [transcribeError, setTranscribeError] = useState<string | null>(null);
@@ -872,14 +904,22 @@ function OpenEndedReviewBlock({
         </p>
       )}
 
-      {/* Persisted AI scores from the cross-check pipeline */}
-      {answer.canSeeAi && (answer.aiScores.gemini || answer.aiScores.kimi) && (
+      {/* Assessor scores side-by-side: human + Gemini + Kimi, whichever
+          exist. Active card (currently the live score) gets a marigold
+          ring so reviewers can tell what's being used at a glance. */}
+      {(latestHumanScore ||
+        (answer.canSeeAi && (answer.aiScores.gemini || answer.aiScores.kimi))) && (
         <div className="rounded-xl border border-etc-marigold bg-etc-marigold/10 p-3">
           <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-etc-black">
-            AI assessor scores
+            Assessor scores
           </p>
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            {answer.aiScores.gemini && (
+          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+            <HumanScoreCard
+              data={latestHumanScore}
+              maxPoints={answer.points}
+              isActive={answer.scoreSource === "manual"}
+            />
+            {answer.canSeeAi && answer.aiScores.gemini && (
               <PersistedScoreCard
                 provider={providerLabel("gemini")}
                 data={answer.aiScores.gemini}
@@ -890,9 +930,10 @@ function OpenEndedReviewBlock({
                 accepting={saving && pendingSource === "ai_gemini"}
                 onReassess={() => void reassessOne("gemini")}
                 reassessing={reassessing === "gemini"}
+                isActive={answer.scoreSource === "ai_gemini"}
               />
             )}
-            {answer.aiScores.kimi && (
+            {answer.canSeeAi && answer.aiScores.kimi && (
               <PersistedScoreCard
                 provider={providerLabel("kimi")}
                 data={answer.aiScores.kimi}
@@ -903,6 +944,7 @@ function OpenEndedReviewBlock({
                 accepting={saving && pendingSource === "ai_kimi"}
                 onReassess={() => void reassessOne("kimi")}
                 reassessing={reassessing === "kimi"}
+                isActive={answer.scoreSource === "ai_kimi"}
               />
             )}
           </div>
@@ -1225,6 +1267,61 @@ function providerShort(provider: "gemini" | "kimi" | string): string {
   return provider;
 }
 
+/* ---------- Human score card (mirror of PersistedScoreCard for AI) ---------- */
+
+function HumanScoreCard({
+  data,
+  maxPoints,
+  isActive,
+}: {
+  data: {
+    score: number;
+    rationale: string | null;
+    scorer: Scorer;
+    at: string | null;
+  } | null;
+  maxPoints: number;
+  isActive: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-lg border bg-background p-3",
+        isActive ? "border-etc-marigold ring-2 ring-etc-marigold" : "border-border",
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[0.7rem] font-semibold">Human reviewer</p>
+        <p className="text-sm tabular-nums">
+          {data ? (
+            <>
+              <strong>{data.score}</strong>{" "}
+              <span className="text-muted-foreground">/ {maxPoints}</span>
+            </>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
+        </p>
+      </div>
+      {data?.rationale ? (
+        <p className="mt-1 whitespace-pre-wrap text-[0.7rem] text-foreground">
+          {data.rationale}
+        </p>
+      ) : (
+        <p className="mt-1 text-[0.7rem] italic text-muted-foreground">
+          {data ? "No rationale captured." : "No human score yet."}
+        </p>
+      )}
+      {data?.scorer && (
+        <p className="mt-1 text-[0.65rem] text-muted-foreground">
+          by {data.scorer.email}
+          {data.at && <> · {new Date(data.at).toLocaleString()}</>}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /* ---------- Persisted per-answer AI score card ---------- */
 
 function PersistedScoreCard({
@@ -1235,6 +1332,7 @@ function PersistedScoreCard({
   accepting,
   onReassess,
   reassessing,
+  isActive = false,
 }: {
   provider: string;
   data: PersistedAiScore;
@@ -1243,9 +1341,15 @@ function PersistedScoreCard({
   accepting: boolean;
   onReassess: () => void;
   reassessing: boolean;
+  isActive?: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-border bg-background p-3">
+    <div
+      className={cn(
+        "rounded-lg border bg-background p-3",
+        isActive ? "border-etc-marigold ring-2 ring-etc-marigold" : "border-border",
+      )}
+    >
       <div className="flex items-center justify-between gap-2">
         <p className="text-[0.7rem] font-semibold">{provider}</p>
         <p className="text-sm tabular-nums">
