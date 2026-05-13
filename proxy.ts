@@ -67,7 +67,18 @@ export async function proxy(request: NextRequest) {
     }
   }
   if (onCandidateHost && adminPath) {
-    return new NextResponse("Not found", { status: 404 });
+    // Redirect rather than 404. Admin chrome lives on the admin host; bare
+    // 404 stranded anyone who landed here via a bookmark, typo, or an old
+    // magic link that pre-dated the host pin (commit 9704906). Preserves
+    // path + query so error params (?error=Email+link+is+invalid…) and
+    // ?next= still render correctly on /admin/login. API paths get the
+    // same redirect — callers handling /api/admin/* across hosts will see
+    // a 308 and can either follow or surface the host mismatch.
+    const target = new URL(request.nextUrl.toString());
+    target.host = "admin.energytalentco.com";
+    target.protocol = "https:";
+    target.port = "";
+    return NextResponse.redirect(target, 308);
   }
 
   // ---- Auth gating for admin surface ----
