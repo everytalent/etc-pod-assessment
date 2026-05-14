@@ -61,6 +61,48 @@ export function QuestionEditorModal({
 }: Props) {
   const isNew = question === null;
   const [serverError, setServerError] = useState<string | null>(null);
+  const [rescoring, setRescoring] = useState(false);
+  const [rescoreResult, setRescoreResult] = useState<string | null>(null);
+  const rescoreSupported =
+    !isNew && question && question.type !== "open" && question.type !== "voice";
+
+  const rescore = async () => {
+    if (isNew || !question) return;
+    if (
+      !confirm(
+        "Re-run scoring on every existing answer to this question using the current correctAnswer / points? Affected responses' totals (and pass/fail) will update.",
+      )
+    ) {
+      return;
+    }
+    setRescoring(true);
+    setRescoreResult(null);
+    setServerError(null);
+    try {
+      const res = await fetch(
+        `/api/admin/questions/${question.id}/rescore`,
+        { method: "POST" },
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        examined?: number;
+        updated?: number;
+        responses_recomputed?: number;
+        message?: string;
+      };
+      if (!res.ok) {
+        throw new Error(data.message ?? `Rescore failed (${res.status})`);
+      }
+      setRescoreResult(
+        `Examined ${data.examined ?? 0}, updated ${data.updated ?? 0}, recomputed ${
+          data.responses_recomputed ?? 0
+        } response(s).`,
+      );
+    } catch (err) {
+      setServerError(err instanceof Error ? err.message : "Rescore failed");
+    } finally {
+      setRescoring(false);
+    }
+  };
 
   const {
     register,
@@ -432,21 +474,42 @@ Red flags:
             </p>
           )}
 
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="inline-flex h-9 items-center rounded-xl border border-border bg-background px-4 text-xs"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="inline-flex h-9 items-center rounded-xl bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:opacity-60"
-            >
-              {isSubmitting ? "Saving…" : isNew ? "Create" : "Save"}
-            </button>
+          {rescoreResult && (
+            <p className="rounded-lg border border-etc-marigold bg-etc-marigold/10 p-3 text-xs text-etc-black">
+              {rescoreResult}
+            </p>
+          )}
+
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+            {rescoreSupported ? (
+              <button
+                type="button"
+                onClick={() => void rescore()}
+                disabled={rescoring || isSubmitting}
+                className="inline-flex h-9 items-center rounded-xl border border-border bg-background px-3 text-xs hover:border-etc-marigold disabled:opacity-60"
+                title="Re-run scoring on every existing answer using the current correctAnswer / points."
+              >
+                {rescoring ? "Rescoring…" : "Rescore all responses"}
+              </button>
+            ) : (
+              <span />
+            )}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="inline-flex h-9 items-center rounded-xl border border-border bg-background px-4 text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="inline-flex h-9 items-center rounded-xl bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:opacity-60"
+              >
+                {isSubmitting ? "Saving…" : isNew ? "Create" : "Save"}
+              </button>
+            </div>
           </div>
         </form>
       </div>
