@@ -13,7 +13,13 @@
 
 import Link from "next/link";
 
+import { notFound } from "next/navigation";
+
 import { requireAdminApi } from "@/lib/auth/admin";
+import {
+  canAccessSkillboards,
+  loadSkillboardAccessRoles,
+} from "@/lib/auth/feature-flags";
 import { listSkillboards } from "@/lib/engines/assessment/skillboards/repository";
 import type { SkillboardListRow } from "@/lib/engines/assessment/skillboards/types";
 
@@ -34,6 +40,15 @@ const ROLE_FAMILY_CHIP: Record<SkillboardListRow["role_family"], string> = {
 export default async function SkillboardsListPage() {
   const auth = await requireAdminApi();
   if (!auth.user) return null; // middleware redirects unauth'd
+
+  // Skillboard access gate. Superadmin always bypasses; others must be
+  // in the role list configured under /admin/settings → Skillboard access.
+  if (auth.session.admin.role !== "superadmin") {
+    const allowed = await loadSkillboardAccessRoles();
+    if (!canAccessSkillboards(auth.session.admin.role, allowed)) {
+      notFound();
+    }
+  }
 
   const boards = await listSkillboards();
 

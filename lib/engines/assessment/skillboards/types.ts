@@ -67,6 +67,17 @@ export const createSkillboardInputSchema = z.discriminatedUnion(
 export type CreateSkillboardInput = z.infer<typeof createSkillboardInputSchema>;
 
 export const patchSkillboardInputSchema = z.object({
+  /**
+   * Specialisation = the skillboard's display name (e.g. "Solar Sales
+   * Specialist"). Renaming this ripples to:
+   *   - the on-page heading + admin list
+   *   - any sentinel "Validation Bank — <spec>" assessment that exists
+   *   - candidate profile match keys (assessment.specialisation = string
+   *     match against this value)
+   * The caller is responsible for accepting the rename's cascade
+   * implications — we do the rename literally, nothing else.
+   */
+  specialisation: z.string().trim().min(3).max(120).optional(),
   description: z.string().trim().max(2000).optional(),
   mindsets: z
     .array(

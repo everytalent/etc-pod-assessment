@@ -6,9 +6,13 @@
  * brief-vet feedback.
  */
 
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { getAdminSession } from "@/lib/auth/admin";
+import {
+  canAccessSkillboards,
+  loadSkillboardAccessRoles,
+} from "@/lib/auth/feature-flags";
 import { NewSkillboardForm } from "@/components/admin/NewSkillboardForm";
 
 export const dynamic = "force-dynamic";
@@ -18,12 +22,12 @@ export default async function NewSkillboardPage() {
   if (!session) {
     redirect("/admin/login");
   }
-  if (
-    session.admin.role !== "editor" &&
-    session.admin.role !== "admin" &&
-    session.admin.role !== "superadmin"
-  ) {
-    redirect("/admin/skillboards");
+  // Skillboard access via the new role-based feature flag (superadmin bypass).
+  if (session.admin.role !== "superadmin") {
+    const allowed = await loadSkillboardAccessRoles();
+    if (!canAccessSkillboards(session.admin.role, allowed)) {
+      notFound();
+    }
   }
 
   return (

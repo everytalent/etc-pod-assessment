@@ -12,7 +12,7 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
-import { requireEditorApi } from "@/lib/auth/admin";
+import { requireSkillboardAccessApi } from "@/lib/auth/admin";
 import {
   getSkillboardDetail,
   patchSkillboard,
@@ -23,7 +23,7 @@ export async function GET(
   _req: Request,
   context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
-  const auth = await requireEditorApi();
+  const auth = await requireSkillboardAccessApi();
   if (!auth.user) return auth.unauthorized;
 
   const { id } = await context.params;
@@ -38,7 +38,7 @@ export async function PATCH(
   req: Request,
   context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
-  const auth = await requireEditorApi();
+  const auth = await requireSkillboardAccessApi();
   if (!auth.user) return auth.unauthorized;
 
   const { id } = await context.params;
@@ -63,6 +63,7 @@ export async function PATCH(
   }
 
   await patchSkillboard(id, {
+    specialisation: input.specialisation,
     description: input.description,
     mindsets: input.mindsets,
     behaviouralSkills: input.behavioural_skills,

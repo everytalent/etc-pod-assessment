@@ -55,6 +55,7 @@ export function SkillboardDetailView({
     useState<AuthoringStatus | null>(null);
   const [activationError, setActivationError] = useState<string | null>(null);
   const [findReplaceOpen, setFindReplaceOpen] = useState(false);
+  const [editingBoard, setEditingBoard] = useState(false);
   const pollingRef = useRef(false);
 
   const refresh = useCallback(async () => {
@@ -210,6 +211,29 @@ export function SkillboardDetailView({
     }
     await refresh();
   }
+
+  /**
+   * Patch board-level metadata (specialisation, description, mindsets,
+   * behavioural_skills). Used by the EditBoardPanel.
+   */
+  async function onPatchBoard(updates: {
+    specialisation?: string;
+    description?: string;
+    mindsets?: { name: string; description: string }[];
+    behavioural_skills?: { name: string; description: string }[];
+  }): Promise<{ ok: true } | { ok: false; message: string }> {
+    const res = await fetch(`/api/admin/skillboards/${initial.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) {
+      const data = (await res.json()) as { message?: string; error?: string };
+      return { ok: false, message: data.message ?? data.error ?? "Save failed." };
+    }
+    await refresh();
+    return { ok: true };
+  }
   async function onActivate() {
     setActivationError(null);
     const res = await fetch(
@@ -237,18 +261,35 @@ export function SkillboardDetailView({
         </a>
       </div>
 
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">
-          {board.specialisation}
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {board.creation_path === "claude_authored" ? "Claude-authored" : "Excel upload"}
-          {" · "}
-          {board.role_family}
-          {" · "}
-          {board.cell_counts.total} cells total
-        </p>
+      <header className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            {board.specialisation}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {board.creation_path === "claude_authored" ? "Claude-authored" : "Excel upload"}
+            {" · "}
+            {board.role_family}
+            {" · "}
+            {board.cell_counts.total} cells total
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setEditingBoard(true)}
+          className="rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium hover:border-etc-marigold"
+        >
+          ✏️ Edit board
+        </button>
       </header>
+
+      {editingBoard && (
+        <EditBoardPanel
+          board={board}
+          onClose={() => setEditingBoard(false)}
+          onSave={onPatchBoard}
+        />
+      )}
 
       {/* Authoring progress / activation banner */}
       <ActivationBanner
@@ -1162,6 +1203,235 @@ function FindReplaceModal({
               </div>
             )}
           </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Edit board metadata panel ---------- */
+
+/**
+ * Edit board-level fields: specialisation (name), description,
+ * mindsets, behavioural skills. These feed back into Claude's prompt
+ * for any future regenerations, so changes don't auto-rewrite existing
+ * cells — they just shape the basis for the next round.
+ */
+function EditBoardPanel({
+  board,
+  onClose,
+  onSave,
+}: {
+  board: SkillboardDetail;
+  onClose: () => void;
+  onSave: (updates: {
+    specialisation?: string;
+    description?: string;
+    mindsets?: { name: string; description: string }[];
+    behavioural_skills?: { name: string; description: string }[];
+  }) => Promise<{ ok: true } | { ok: false; message: string }>;
+}) {
+  const [specialisation, setSpecialisation] = useState(board.specialisation);
+  const [description, setDescription] = useState(board.description ?? "");
+  const [mindsets, setMindsets] = useState(
+    board.mindsets.map((m) => ({ name: m.name, description: m.description })),
+  );
+  const [behavioural, setBehavioural] = useState(
+    board.behavioural_skills.map((s) => ({
+      name: s.name,
+      description: s.description,
+    })),
+  );
+  const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  async function handleSave() {
+    setSaving(true);
+    setErrorMsg(null);
+    const trimmedSpec = specialisation.trim();
+    if (trimmedSpec.length < 3) {
+      setErrorMsg("Specialisation must be at least 3 characters.");
+      setSaving(false);
+      return;
+    }
+    const updates: Parameters<typeof onSave>[0] = {};
+    if (trimmedSpec !== board.specialisation) updates.specialisation = trimmedSpec;
+    if (description.trim() !== (board.description ?? "")) {
+      updates.description = description.trim();
+    }
+    updates.mindsets = mindsets
+      .filter((m) => m.name.trim().length > 0)
+      .map((m) => ({ name: m.name.trim(), description: m.description.trim() }));
+    updates.behavioural_skills = behavioural
+      .filter((s) => s.name.trim().length > 0)
+      .map((s) => ({ name: s.name.trim(), description: s.description.trim() }));
+
+    const result = await onSave(updates);
+    setSaving(false);
+    if (result.ok) onClose();
+    else setErrorMsg(result.message);
+  }
+
+  return (
+    <section className="mb-6 rounded-2xl border border-etc-marigold bg-card p-5">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-base font-semibold">Edit board metadata</h2>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-xs text-muted-foreground hover:text-foreground"
+        >
+          ✕ close
+        </button>
+      </div>
+
+      <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-2 text-[0.7rem] text-amber-900">
+        Heads up: changes here update the basis for future regenerations, not
+        the existing cell text. Renaming the board ripples to the public
+        specialisation key — make sure candidate profiles and the sentinel
+        Validation Bank assessment reference the new name where needed.
+      </p>
+
+      <div className="space-y-4">
+        <label className="block">
+          <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-muted-foreground">
+            Name (specialisation)
+          </span>
+          <input
+            type="text"
+            value={specialisation}
+            onChange={(e) => setSpecialisation(e.target.value)}
+            minLength={3}
+            maxLength={120}
+            className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+            aria-label="Skillboard specialisation"
+          />
+        </label>
+
+        <label className="block">
+          <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-muted-foreground">
+            Description / brief
+          </span>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={4}
+            maxLength={2000}
+            placeholder="A good brief: project size/scale, primary geography, 2-3 example deliverables, how this differs from adjacent roles."
+            className="mt-1 w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm"
+          />
+          <p className="mt-1 text-[0.65rem] text-muted-foreground">
+            {description.length} / 2000 characters
+          </p>
+        </label>
+
+        <NameDescriptionListEditor
+          label="Mindsets"
+          rows={mindsets}
+          onChange={setMindsets}
+          maxRows={20}
+        />
+
+        <NameDescriptionListEditor
+          label="Behavioural skills"
+          rows={behavioural}
+          onChange={setBehavioural}
+          maxRows={20}
+        />
+      </div>
+
+      {errorMsg && (
+        <p className="mt-3 rounded-lg border border-destructive bg-destructive/10 p-2 text-xs text-destructive">
+          {errorMsg}
+        </p>
+      )}
+
+      <div className="mt-5 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium hover:border-etc-marigold"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save changes"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function NameDescriptionListEditor({
+  label,
+  rows,
+  onChange,
+  maxRows,
+}: {
+  label: string;
+  rows: { name: string; description: string }[];
+  onChange: (rows: { name: string; description: string }[]) => void;
+  maxRows: number;
+}) {
+  return (
+    <div>
+      <p className="text-[0.7rem] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label} ({rows.length}/{maxRows})
+      </p>
+      <div className="mt-1 space-y-2">
+        {rows.map((row, i) => (
+          <div
+            key={i}
+            className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_2fr_auto] sm:items-start"
+          >
+            <input
+              type="text"
+              value={row.name}
+              onChange={(e) => {
+                const next = [...rows];
+                next[i] = { ...next[i], name: e.target.value };
+                onChange(next);
+              }}
+              placeholder="Name"
+              maxLength={120}
+              className="rounded-lg border border-input bg-background px-2 py-1 text-xs"
+              aria-label={`${label} ${i + 1} name`}
+            />
+            <input
+              type="text"
+              value={row.description}
+              onChange={(e) => {
+                const next = [...rows];
+                next[i] = { ...next[i], description: e.target.value };
+                onChange(next);
+              }}
+              placeholder="Short description (optional)"
+              maxLength={500}
+              className="rounded-lg border border-input bg-background px-2 py-1 text-xs"
+              aria-label={`${label} ${i + 1} description`}
+            />
+            <button
+              type="button"
+              onClick={() => onChange(rows.filter((_, idx) => idx !== i))}
+              className="rounded-md border border-border bg-background px-2 py-1 text-[0.65rem] text-muted-foreground hover:border-destructive hover:text-destructive"
+            >
+              remove
+            </button>
+          </div>
+        ))}
+        {rows.length < maxRows && (
+          <button
+            type="button"
+            onClick={() => onChange([...rows, { name: "", description: "" }])}
+            className="text-[0.7rem] text-muted-foreground hover:text-foreground hover:underline"
+          >
+            + add {label.toLowerCase().replace(/s$/, "")}
+          </button>
         )}
       </div>
     </div>

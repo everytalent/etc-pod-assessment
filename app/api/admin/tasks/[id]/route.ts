@@ -12,7 +12,7 @@ import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { requireEditorApi } from "@/lib/auth/admin";
+import { requireSkillboardAccessApi } from "@/lib/auth/admin";
 import { db } from "@/lib/db/client";
 import { tasks } from "@/lib/db/schema";
 
@@ -24,7 +24,7 @@ export async function PATCH(
   req: Request,
   context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
-  const auth = await requireEditorApi();
+  const auth = await requireSkillboardAccessApi();
   if (!auth.user) return auth.unauthorized;
 
   const { id } = await context.params;

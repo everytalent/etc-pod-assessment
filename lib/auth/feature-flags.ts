@@ -22,6 +22,15 @@ import { featureFlags } from "@/lib/db/schema";
 
 const VALID_ROLES: AdminRole[] = ["superadmin", "admin", "editor", "assessor"];
 export const AI_SCORING_FLAG_KEY = "ai_scoring_visibility";
+/**
+ * Skillboard access — controls who can VIEW/CREATE/EDIT skillboards
+ * (rename a board, edit metadata, find-replace, regenerate cells).
+ * The approve/activate gate is separate (per-admin can_approve_skillboards
+ * boolean = the Learning Expert role). Approving still requires the
+ * user to be in the allowed roles here AND have the Learning Expert
+ * flag — they're stacked, not OR'd.
+ */
+export const SKILLBOARD_ACCESS_FLAG_KEY = "skillboard_access";
 
 function parseRoles(values: readonly string[]): AdminRole[] {
   const out = values
@@ -68,4 +77,40 @@ export function canRunAiPipeline(
   allowed: ReadonlySet<AdminRole>,
 ): boolean {
   return allowed.has(role) && role !== "assessor";
+}
+
+/* ---------- Skillboard access flag ---------- */
+
+/**
+ * Mirrors loadAiScoringRoles for the skillboard_access flag.
+ * Fallback (row missing) defaults to ['superadmin'] only — safe.
+ */
+export async function loadSkillboardAccessRoles(): Promise<Set<AdminRole>> {
+  try {
+    const [row] = await db
+      .select()
+      .from(featureFlags)
+      .where(eq(featureFlags.key, SKILLBOARD_ACCESS_FLAG_KEY))
+      .limit(1);
+    if (row) return new Set(parseRoles(row.enabledForRoles));
+  } catch {
+    // Table missing or DB unreachable — fall through to env.
+  }
+  const raw = process.env.SKILLBOARD_ACCESS_VISIBLE_TO ?? "superadmin";
+  return new Set(parseRoles(raw.split(",")));
+}
+
+/**
+ * Decision function. Used by the route auth wrapper +
+ * client-side helpers (e.g. show/hide nav links).
+ */
+export function canAccessSkillboards(
+  role: AdminRole,
+  allowed: ReadonlySet<AdminRole>,
+): boolean {
+  // Assessors never get skillboard access regardless of flag — the
+  // assessor role exists for scoring only; broadening it here would
+  // be a footgun.
+  if (role === "assessor") return false;
+  return allowed.has(role);
 }

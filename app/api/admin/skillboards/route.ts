@@ -20,7 +20,7 @@ import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
-import { requireEditorApi } from "@/lib/auth/admin";
+import { requireSkillboardAccessApi } from "@/lib/auth/admin";
 import { vetBrief } from "@/lib/engines/assessment/skillboards/brief-validator";
 import { runStructureAuthoring } from "@/lib/engines/assessment/skillboards/claude-author";
 import {
@@ -34,7 +34,7 @@ import {
 } from "@/lib/engines/assessment/skillboards/types";
 
 export async function GET(): Promise<NextResponse> {
-  const auth = await requireEditorApi();
+  const auth = await requireSkillboardAccessApi();
   if (!auth.user) return auth.unauthorized;
 
   const rows = await listSkillboards();
@@ -42,7 +42,7 @@ export async function GET(): Promise<NextResponse> {
 }
 
 export async function POST(req: Request): Promise<NextResponse> {
-  const auth = await requireEditorApi();
+  const auth = await requireSkillboardAccessApi();
   if (!auth.user) return auth.unauthorized;
 
   let input;

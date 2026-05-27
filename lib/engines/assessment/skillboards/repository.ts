@@ -340,6 +340,7 @@ export async function getSkillboardDetail(
 export async function patchSkillboard(
   id: string,
   updates: {
+    specialisation?: string;
     description?: string;
     mindsets?: SkillboardMindset[];
     behaviouralSkills?: SkillboardBehaviouralSkill[];
@@ -349,6 +350,9 @@ export async function patchSkillboard(
   await db
     .update(skillboards)
     .set({
+      ...(updates.specialisation !== undefined && {
+        specialisation: updates.specialisation,
+      }),
       ...(updates.description !== undefined && {
         description: updates.description,
       }),

@@ -195,3 +195,39 @@ export async function requireSkillboardApproverApi(): Promise<RequireAdminApiRes
   }
   return result;
 }
+
+/**
+ * Skillboard access gate — checks the `skillboard_access` feature
+ * flag (role-based; superadmin manages in /admin/settings). Used by
+ * VIEW/CREATE/EDIT skillboard routes (anything that's not the
+ * approve/activate gate, which uses requireSkillboardApproverApi).
+ *
+ * Superadmin always has access regardless of flag.
+ */
+export async function requireSkillboardAccessApi(): Promise<RequireAdminApiResult> {
+  const result = await requireAdminApi();
+  if (!result.user) return result;
+
+  // Superadmin bypass (so a misconfigured flag can't lock everyone out).
+  if (result.session.admin.role === "superadmin") return result;
+
+  const { loadSkillboardAccessRoles, canAccessSkillboards } = await import(
+    "@/lib/auth/feature-flags"
+  );
+  const allowed = await loadSkillboardAccessRoles();
+  if (!canAccessSkillboards(result.session.admin.role, allowed)) {
+    return {
+      user: null,
+      session: null,
+      unauthorized: NextResponse.json(
+        {
+          error: "forbidden",
+          message:
+            "Skillboard access is restricted to roles configured under Settings → Skillboard access.",
+        },
+        { status: 403 },
+      ),
+    };
+  }
+  return result;
+}
