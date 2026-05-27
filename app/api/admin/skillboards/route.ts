@@ -168,16 +168,126 @@ export async function POST(req: Request): Promise<NextResponse> {
       { status: 201 },
     );
   } catch (err) {
-    // Structure call failed — board exists but is empty. Return 502 so
-    // the UI surfaces an actionable error; admin can retry from the
-    // detail page or delete the board and start over.
+    // Structure call failed — board exists but is empty.
+    //
+    // We auto-delete the half-baked row so the admin doesn't have to
+    // hunt through the list to clean up. The brief is preserved in the
+    // user's form state; they just resubmit.
+    //
+    // Surface a friendly message that maps the raw underlying error
+    // (Anthropic 429, schema mismatch, missing env var, etc.) to a
+    // suggestion the admin can act on.
+    const rawMessage = err instanceof Error ? err.message : "unknown error";
+    const friendly = mapAuthoringErrorToFriendly(rawMessage);
+    try {
+      const { skillboards: skillboardsTable } = await import("@/lib/db/schema");
+      const { db: dbForCleanup2 } = await import("@/lib/db/client");
+      await dbForCleanup2
+        .delete(skillboardsTable)
+        .where(eq(skillboardsTable.id, board.id));
+    } catch (cleanupErr) {
+      console.warn(
+        "[skillboards POST] failed to delete half-baked board:",
+        cleanupErr instanceof Error ? cleanupErr.message : "unknown",
+      );
+    }
     return NextResponse.json(
       {
         error: "structure_authoring_failed",
-        message: err instanceof Error ? err.message : "unknown error",
-        skillboard_id: board.id,
+        message: friendly.message,
+        suggestion: friendly.suggestion,
+        retryable: friendly.retryable,
+        // Underlying error retained for debugging in logs / network panel,
+        // but the form will show `message` + `suggestion` instead.
+        raw: rawMessage.slice(0, 240),
       },
       { status: 502 },
     );
   }
+}
+
+/**
+ * Maps raw error strings from Opus / Anthropic SDK into an actionable
+ * pair: a one-sentence reason for the admin, and a concrete next step.
+ * Includes a `retryable` hint so the form can offer Retry vs Edit-brief.
+ */
+function mapAuthoringErrorToFriendly(raw: string): {
+  message: string;
+  suggestion: string;
+  retryable: boolean;
+} {
+  const lower = raw.toLowerCase();
+
+  // Anthropic key missing
+  if (lower.includes("anthropic_api_key") && lower.includes("not set")) {
+    return {
+      message: "The authoring service is not configured on this server.",
+      suggestion:
+        "This is an infrastructure issue, not a problem with your brief. Notify the platform admin to add the ANTHROPIC_API_KEY environment variable. Your brief has not been saved.",
+      retryable: false,
+    };
+  }
+
+  // Anthropic rate-limited / overloaded
+  if (lower.includes("429") || lower.includes("rate") || lower.includes("overloaded")) {
+    return {
+      message: "Authoring service is busy right now.",
+      suggestion: "Wait 30-60 seconds, then click Create skillboard again. Your brief is still in the form below.",
+      retryable: true,
+    };
+  }
+
+  // Opus refused / safety filter
+  if (lower.includes("refused") || lower.includes("safety") || lower.includes("blocked")) {
+    return {
+      message: "Claude couldn't author this skillboard from the brief as written.",
+      suggestion:
+        "This usually means the brief mentions a sensitive topic, asks for protected information, or is too abstract for Claude to act on. Rewrite the brief with concrete deliverables and project examples for this role, then resubmit.",
+      retryable: true,
+    };
+  }
+
+  // Schema validation failure on Opus output — usually means the brief
+  // is too thin to produce a coherent structure.
+  if (lower.includes("schema") || lower.includes("validation") || lower.includes("parse")) {
+    return {
+      message: "Claude returned a partial result that didn't match the expected structure.",
+      suggestion:
+        "This usually happens when the brief is too short or ambiguous. Try adding more specifics — typical project size, geography, 2-3 example deliverables, and how this role differs from adjacent specialisations. Then resubmit.",
+      retryable: true,
+    };
+  }
+
+  // Budget cap (Opus monthly limit reached)
+  if (lower.includes("budget") || lower.includes("cap") || lower.includes("limit reached")) {
+    return {
+      message: "The monthly Opus budget cap has been reached.",
+      suggestion:
+        "This is a billing limit, not a problem with your brief. Notify the platform admin to raise OPUS_MONTHLY_CAP_USD or wait until the next billing month.",
+      retryable: false,
+    };
+  }
+
+  // Network / timeout / 5xx
+  if (
+    lower.includes("timeout") ||
+    lower.includes("econnreset") ||
+    lower.includes("fetch failed") ||
+    lower.includes("503") ||
+    lower.includes("502")
+  ) {
+    return {
+      message: "Couldn't reach the authoring service.",
+      suggestion: "Likely a transient network issue. Try again in 30 seconds.",
+      retryable: true,
+    };
+  }
+
+  // Generic fall-through
+  return {
+    message: "Skillboard authoring failed.",
+    suggestion:
+      "Try resubmitting. If it fails again, rewrite the brief to be more specific — concrete project size, geography, example deliverables, and how this role differs from adjacent specialisations.",
+    retryable: true,
+  };
 }

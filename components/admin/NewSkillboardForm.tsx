@@ -25,6 +25,12 @@ type SubmitState =
   | { kind: "submitting" }
   | { kind: "error"; message: string }
   | {
+      kind: "authoring_failed";
+      message: string;
+      suggestion: string;
+      retryable: boolean;
+    }
+  | {
       kind: "brief_too_weak";
       score: number;
       missing: string[];
@@ -119,10 +125,39 @@ export function NewSkillboardForm() {
       });
       return;
     }
-    const text = await res.text().catch(() => "");
+
+    // 502 from the route = structure_authoring_failed (Opus / Anthropic
+    // upstream). The route already auto-deleted the half-baked board
+    // and ships back a friendly { message, suggestion, retryable }.
+    if (res.status === 502) {
+      const data = (await res
+        .json()
+        .catch(() => ({}))) as {
+        error?: string;
+        message?: string;
+        suggestion?: string;
+        retryable?: boolean;
+      };
+      if (data.error === "structure_authoring_failed" && data.message) {
+        setState({
+          kind: "authoring_failed",
+          message: data.message,
+          suggestion:
+            data.suggestion ??
+            "Try resubmitting. If it fails again, rewrite the brief to be more specific.",
+          retryable: data.retryable ?? true,
+        });
+        return;
+      }
+    }
+
+    // Last-resort fall-through. Avoid showing raw JSON to the user.
     setState({
       kind: "error",
-      message: `Failed to create skillboard (${res.status}): ${text.slice(0, 200)}`,
+      message:
+        res.status >= 500
+          ? "The server hit an unexpected error. Try again in 30 seconds — your brief is still here."
+          : "Couldn't create the skillboard. Check the fields above and try again.",
     });
   }
 
@@ -270,6 +305,29 @@ export function NewSkillboardForm() {
             <span className="font-semibold">Suggested additions:</span>{" "}
             {state.suggested_additions}
           </p>
+          <p className="mt-3 text-[0.7rem] text-amber-800">
+            Edit the Brief field above to add those details, then click
+            Create skillboard again. Nothing was saved.
+          </p>
+        </div>
+      )}
+
+      {/* Authoring failure (Opus / Anthropic upstream) — actionable message */}
+      {state.kind === "authoring_failed" && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-xs">
+          <div className="flex items-start gap-2">
+            <span aria-hidden className="text-base">⚠️</span>
+            <div className="space-y-2">
+              <p className="font-semibold text-amber-900">{state.message}</p>
+              <p className="text-amber-900">{state.suggestion}</p>
+              {state.retryable && (
+                <p className="text-[0.7rem] text-amber-800">
+                  Your brief is still in the form. Tweak it if needed, then
+                  click Create skillboard again.
+                </p>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
