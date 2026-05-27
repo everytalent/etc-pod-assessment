@@ -43,7 +43,7 @@ export default async function NewSkillboardPage() {
           New skillboard
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Claude will author skills, tasks, and 15 expectation cells per
+          chioma.ai will author skills, tasks, and 15 expectation cells per
           task. Per-task cells run as a background queue you can monitor.
         </p>
       </div>

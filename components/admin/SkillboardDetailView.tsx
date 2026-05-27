@@ -299,7 +299,7 @@ export function SkillboardDetailView({
             {board.specialisation}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {board.creation_path === "claude_authored" ? "Claude-authored" : "Excel upload"}
+            {board.creation_path === "claude_authored" ? "chioma.ai-authored" : "Excel upload"}
             {" · "}
             {board.role_family}
             {" · "}
@@ -949,8 +949,8 @@ function CellEditor(props: {
         )}
       </p>
       <div className="flex items-center justify-between gap-1">
-        <span className="text-[0.6rem] uppercase tracking-wider text-muted-foreground">
-          {cell.synthesised ? "Claude" : "Human"}
+        <span className="text-[0.6rem] tracking-wider text-muted-foreground">
+          {cell.synthesised ? "chioma.ai" : "HUMAN"}
           {cell.regeneration_count > 0 ? ` · regen ×${cell.regeneration_count}` : ""}
         </span>
         {canApprove && (

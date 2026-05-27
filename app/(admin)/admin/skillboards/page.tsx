@@ -3,7 +3,7 @@
  *
  * Server component. Renders one row per skillboard with:
  *   - Specialisation name
- *   - Creation path (Upload / Claude-authored)
+ *   - Creation path (Upload / chioma.ai-authored)
  *   - Role family chip
  *   - Activation status ("Pending — 12 of 375 cells" / "Active since …")
  *   - Updated-at
@@ -104,7 +104,7 @@ export default async function SkillboardsListPage() {
                   </td>
                   <td className="px-4 py-3 text-xs text-muted-foreground">
                     {b.creation_path === "claude_authored"
-                      ? "Claude-authored"
+                      ? "chioma.ai-authored"
                       : "Excel upload"}
                   </td>
                   <td className="px-4 py-3">{renderStatus(b)}</td>

@@ -240,9 +240,9 @@ function mapAuthoringErrorToFriendly(raw: string): {
   // Opus refused / safety filter
   if (lower.includes("refused") || lower.includes("safety") || lower.includes("blocked")) {
     return {
-      message: "Claude couldn't author this skillboard from the brief as written.",
+      message: "chioma.ai couldn't author this skillboard from the brief as written.",
       suggestion:
-        "This usually means the brief mentions a sensitive topic, asks for protected information, or is too abstract for Claude to act on. Rewrite the brief with concrete deliverables and project examples for this role, then resubmit.",
+        "This usually means the brief mentions a sensitive topic, asks for protected information, or is too abstract for chioma.ai to act on. Rewrite the brief with concrete deliverables and project examples for this role, then resubmit.",
       retryable: true,
     };
   }
@@ -251,7 +251,7 @@ function mapAuthoringErrorToFriendly(raw: string): {
   // is too thin to produce a coherent structure.
   if (lower.includes("schema") || lower.includes("validation") || lower.includes("parse")) {
     return {
-      message: "Claude returned a partial result that didn't match the expected structure.",
+      message: "chioma.ai returned a partial result that didn't match the expected structure.",
       suggestion:
         "This usually happens when the brief is too short or ambiguous. Try adding more specifics — typical project size, geography, 2-3 example deliverables, and how this role differs from adjacent specialisations. Then resubmit.",
       retryable: true,

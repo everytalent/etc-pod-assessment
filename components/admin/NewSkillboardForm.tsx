@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * New-skillboard creation form (Claude-authored path).
+ * New-skillboard creation form (chioma.ai-authored path).
  *
  * - Role family pre-selected by suggestRoleFamily() as admin types.
  * - On submit, POST /api/admin/skillboards. Handles:
@@ -254,8 +254,8 @@ export function NewSkillboardForm() {
           Reference URLs (optional, max 5)
         </label>
         <p className="mt-1 text-[0.7rem] text-muted-foreground">
-          Industry standards, training materials, or JDs Claude should
-          reference. Claude may also web-search.
+          Industry standards, training materials, or JDs chioma.ai should
+          reference. chioma.ai may also web-search.
         </p>
         <div className="mt-2 space-y-2">
           {referenceUrls.map((url, i) => (
