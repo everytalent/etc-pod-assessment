@@ -1,0 +1,1 @@
+ALTER TABLE "answers" ADD COLUMN "recording_attempted" boolean DEFAULT false NOT NULL;

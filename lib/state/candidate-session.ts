@@ -38,6 +38,13 @@ export type AnswerPayload = {
   textResponse?: string;
   audioPath?: string;
   audioDurationSeconds?: number;
+  /** Set on timeout when the candidate was mid-input but nothing was recoverable. */
+  recordingAttempted?: boolean;
+  /**
+   * For interactive question types (slider, hotspot, sequence, matching,
+   * scenario, formula). Schema validated server-side by the type registry.
+   */
+  structuredAnswer?: unknown;
 };
 
 export type CandidateSessionState = {
@@ -123,6 +130,8 @@ export const useCandidateSession = create<CandidateSessionState>((set, get) => (
           text_response: payload.textResponse,
           audio_path: payload.audioPath,
           audio_duration_seconds: payload.audioDurationSeconds,
+          recording_attempted: payload.recordingAttempted,
+          structured_answer: payload.structuredAnswer,
         }),
       });
 
@@ -150,7 +159,9 @@ export const useCandidateSession = create<CandidateSessionState>((set, get) => (
               ? truncate(payload.textResponse, 80)
               : payload.audioPath
                 ? "🎙️ Voice answer recorded"
-                : null,
+                : payload.recordingAttempted
+                  ? "⏱ Time ran out while recording"
+                  : null,
         textResponse: payload.textResponse ?? null,
         audioPath: payload.audioPath ?? null,
         scoreDelta: data.score_so_far - state.scoreSoFar,

@@ -23,6 +23,7 @@ import { ZodError } from "zod";
 import { db } from "@/lib/db/client";
 import {
   answers,
+  assessments,
   questions,
   responses,
   type ResponseMetadata,
@@ -40,6 +41,8 @@ import {
   submitAnswerSchema,
   type AnswerResponse,
 } from "@/lib/assessment/validators";
+import { getTypeDef } from "@/lib/engines/assessment/question-types";
+import { advanceValidationFlow } from "@/lib/engines/assessment/cat/validation-flow";
 import {
   clearCandidateSession,
   getCandidateSession,
@@ -144,31 +147,122 @@ export async function POST(req: Request) {
     typeof question.timeLimitSeconds === "number" &&
     effectiveTimeSpent > question.timeLimitSeconds;
 
-  /* ---- Score + persist ---- */
-  // Open-ended (text or voice) cannot auto-score — score_awarded stays at 0
-  // until an admin reviews. Other types score immediately via the pure layer.
-  const isOpenEnded = question.type === "open";
-  const scoreAwarded = isOpenEnded
-    ? 0
-    : scoreAnswer(question, input.selected_options, timedOut);
+  /* ---- Load assessment to detect mode (fixed vs validation) ---- */
+  const [assessment] = await db
+    .select({
+      mode: assessments.mode,
+      specialisation: assessments.specialisation,
+    })
+    .from(assessments)
+    .where(eq(assessments.id, response.assessmentId))
+    .limit(1);
 
-  await db.insert(answers).values({
-    responseId,
-    questionId: question.id,
-    selectedOptions: input.selected_options,
-    textResponse: input.text_response ?? null,
-    audioPath: input.audio_path ?? null,
-    audioDurationSeconds: input.audio_duration_seconds ?? null,
-    timeSpentSeconds: Math.round(effectiveTimeSpent),
-    timedOut,
-    scoreAwarded,
-    answeredAt: now,
-  });
+  /* ---- Score + persist ---- */
+  // Three scoring paths:
+  //   - Open / voice / file: AI-scored later; score_awarded = 0 now
+  //   - Interactive types (slider, hotspot, sequence, matching, scenario, formula):
+  //     use the type registry's deterministic auto-scorer
+  //   - Legacy MCQ / T-F: existing scoreAnswer() path
+  const isOpenEnded =
+    question.type === "open" || question.type === "voice" || question.type === "file";
+
+  let scoreAwarded = 0;
+  let autoScoreResult: unknown = null;
+
+  if (isOpenEnded) {
+    scoreAwarded = 0;
+  } else if (
+    question.type === "mcq" ||
+    question.type === "true_false"
+  ) {
+    scoreAwarded = scoreAnswer(question, input.selected_options, timedOut);
+  } else {
+    // Phase 2 interactive types — use the registry's auto-scorer.
+    try {
+      const def = getTypeDef(question.type);
+      if (def.autoScore && input.structured_answer !== undefined) {
+        const result = def.autoScore({
+          config: question.interactiveConfig,
+          answer: input.structured_answer,
+          points: question.points,
+        });
+        if (result) {
+          scoreAwarded = timedOut ? 0 : result.score;
+          autoScoreResult = result;
+        }
+      }
+    } catch (err) {
+      console.warn(
+        `[answers POST] auto-score failed for type ${question.type}:`,
+        err instanceof Error ? err.message : "unknown",
+      );
+      // Fall through with scoreAwarded = 0; admin can review.
+    }
+  }
+
+  const [insertedAnswer] = await db
+    .insert(answers)
+    .values({
+      responseId,
+      questionId: question.id,
+      selectedOptions: input.selected_options,
+      textResponse: input.text_response ?? null,
+      audioPath: input.audio_path ?? null,
+      audioDurationSeconds: input.audio_duration_seconds ?? null,
+      recordingAttempted: input.recording_attempted ?? false,
+      structuredAnswer: input.structured_answer ?? null,
+      autoScoreResult: autoScoreResult ?? null,
+      timeSpentSeconds: Math.round(effectiveTimeSpent),
+      timedOut,
+      scoreAwarded,
+      answeredAt: now,
+    })
+    .returning({ id: answers.id });
 
   /* ---- Determine next + persist metadata ---- */
-  const next = await getNextQuestion(responseId);
+  // Hybrid dispatch: validation-mode goes through the CAT engine; fixed
+  // (legacy) mode keeps the existing branching-rules path.
+  let nextKind: "next" | "end";
+  let nextQuestionId: string | null = null;
 
-  if (next.kind === "end") {
+  if (assessment?.mode === "validation") {
+    if (!assessment.specialisation) {
+      return NextResponse.json(
+        {
+          error: "validation_assessment_missing_specialisation",
+          message:
+            "Validation-mode assessments must have a specialisation set.",
+        },
+        { status: 500 },
+      );
+    }
+    // MVP: claimed band is read from response.metadata.claimed_band
+    // (set by /api/sessions/select-specialisations — to be built).
+    // Default to 'junior' so existing dev rows don't crash.
+    const claimedBand =
+      ((response.metadata as Record<string, unknown>).claimed_band as
+        | "junior"
+        | "mid"
+        | "senior"
+        | undefined) ?? "junior";
+    const answered = (response.metadata.path ?? []).concat(question.id);
+    const flow = await advanceValidationFlow({
+      responseId,
+      specialisation: assessment.specialisation,
+      claimedBand,
+      budget: 15, // MVP — single-spec budget; multi-spec uses PER_SPEC_BUDGET later
+      lastAnswerId: insertedAnswer.id,
+      answeredQuestionIds: answered,
+    });
+    nextKind = flow.kind;
+    if (flow.kind === "next") nextQuestionId = flow.questionId;
+  } else {
+    const next = await getNextQuestion(responseId);
+    nextKind = next.kind;
+    if (next.kind === "next") nextQuestionId = next.questionId;
+  }
+
+  if (nextKind === "end") {
     const final = await finalizeResponse(responseId);
     await clearCandidateSession();
     const payload: AnswerResponse & { total_score: number; pass: boolean } = {
@@ -192,7 +286,7 @@ export async function POST(req: Request) {
     .where(eq(responses.id, responseId));
 
   const [nextQuestion, runningScore] = await Promise.all([
-    getCandidateQuestion(next.questionId),
+    nextQuestionId ? getCandidateQuestion(nextQuestionId) : Promise.resolve(null),
     getRunningScore(responseId),
   ]);
 

@@ -167,3 +167,31 @@ export async function requireRoleApi(
 export const requireSuperAdminApi = () => requireRoleApi("superadmin");
 export const requireAdminTierApi = () => requireRoleApi("admin");
 export const requireEditorApi = () => requireRoleApi("editor");
+
+/**
+ * Talent Validation Engine — requires `can_approve_skillboards`
+ * (Learning Expert) on top of editor+ tier. PRD §1b.
+ *
+ * Used by: cell approve/reject/bulk-approve, skillboard activate.
+ * NOT used by cell edit-in-place (any editor can edit; permission
+ * gate is only for cells that *go live*).
+ */
+export async function requireSkillboardApproverApi(): Promise<RequireAdminApiResult> {
+  const result = await requireRoleApi("editor");
+  if (!result.user) return result;
+  if (!result.session.admin.canApproveSkillboards) {
+    return {
+      user: null,
+      session: null,
+      unauthorized: NextResponse.json(
+        {
+          error: "forbidden",
+          message:
+            "Learning Expert only — your admin user needs can_approve_skillboards.",
+        },
+        { status: 403 },
+      ),
+    };
+  }
+  return result;
+}

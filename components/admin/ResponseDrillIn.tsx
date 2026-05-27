@@ -203,14 +203,30 @@ export function ResponseDrillIn({
         );
       }
       const plan = (await planRes.json()) as {
-        scorable: { answerId: string; maxPoints: number }[];
+        scorable: {
+          answerId: string;
+          maxPoints: number;
+          needsTranscription?: boolean;
+        }[];
         skipped: string[];
         existing: { gemini: string[]; kimi: string[] };
       };
+      // Nothing scorable → finish in "done" so the reviewer sees the
+      // per-answer reasons (no rubric / no answer / etc.) instead of a
+      // single generic error.
       if (plan.scorable.length === 0) {
-        throw new Error(
-          "No open-ended answers in this response have both a rubric and a candidate answer ready.",
-        );
+        setPipeline({
+          phase: "done",
+          result: {
+            consensus: "gemini_only",
+            gemini_scored: 0,
+            kimi_scored: 0,
+            sample_diff: null,
+            skipped: plan.skipped,
+            errors: [],
+          },
+        });
+        return;
       }
 
       const errors: string[] = [];
@@ -1727,36 +1743,54 @@ function CrossCheckPanel({
       )}
 
       {pipeline.phase === "done" && (
-        <div className="mt-3 space-y-1 text-xs text-foreground">
-          <p>
-            1st assessor (Gemini) scored{" "}
-            <strong>{pipeline.result.gemini_scored}</strong>{" "}
-            answer{pipeline.result.gemini_scored === 1 ? "" : "s"}; 2nd assessor
-            (Kimi) scored <strong>{pipeline.result.kimi_scored}</strong>.
-            {pipeline.result.sample_diff !== null && (
-              <>
-                {" "}Sample mean abs diff:{" "}
-                <strong>{pipeline.result.sample_diff.toFixed(2)}</strong>.
-              </>
-            )}
-          </p>
-          {pipeline.result.skipped.length > 0 && (
-            <p className="text-muted-foreground">
-              Skipped: {pipeline.result.skipped.join(", ")}
+        <div className="mt-3 space-y-2 text-xs text-foreground">
+          {pipeline.result.gemini_scored === 0 &&
+          pipeline.result.kimi_scored === 0 ? (
+            <p>
+              No open-ended answers were scored. See the reasons below to fix
+              and re-run.
+            </p>
+          ) : (
+            <p>
+              1st assessor (Gemini) scored{" "}
+              <strong>{pipeline.result.gemini_scored}</strong>{" "}
+              answer{pipeline.result.gemini_scored === 1 ? "" : "s"}; 2nd assessor
+              (Kimi) scored <strong>{pipeline.result.kimi_scored}</strong>.
+              {pipeline.result.sample_diff !== null && (
+                <>
+                  {" "}Sample mean abs diff:{" "}
+                  <strong>{pipeline.result.sample_diff.toFixed(2)}</strong>.
+                </>
+              )}
             </p>
           )}
+          {pipeline.result.skipped.length > 0 && (
+            <div className="rounded-lg border border-border bg-background/60 p-2">
+              <p className="font-medium text-muted-foreground">
+                Skipped {pipeline.result.skipped.length} answer
+                {pipeline.result.skipped.length === 1 ? "" : "s"} (no rubric or
+                no candidate answer):
+              </p>
+              <ul className="mt-1 ml-4 list-disc text-muted-foreground">
+                {pipeline.result.skipped.map((s) => (
+                  <li key={s}>{s}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           {pipeline.result.errors.length > 0 && (
-            <details className="text-destructive">
-              <summary className="cursor-pointer">
-                {pipeline.result.errors.length} error
-                {pipeline.result.errors.length === 1 ? "" : "s"}
-              </summary>
-              <ul className="ml-5 list-disc">
+            <div className="rounded-lg border border-destructive bg-destructive/10 p-2">
+              <p className="font-medium text-destructive">
+                {pipeline.result.errors.length} answer
+                {pipeline.result.errors.length === 1 ? "" : "s"} failed to
+                score — these did NOT contribute to consensus:
+              </p>
+              <ul className="mt-1 ml-4 list-disc text-destructive">
                 {pipeline.result.errors.map((e) => (
                   <li key={e}>{e}</li>
                 ))}
               </ul>
-            </details>
+            </div>
           )}
         </div>
       )}

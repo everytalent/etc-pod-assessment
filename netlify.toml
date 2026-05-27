@@ -13,3 +13,23 @@
   PNPM_VERSION = "10"
   # Skip the Next.js telemetry prompt during build.
   NEXT_TELEMETRY_DISABLED = "1"
+
+# ---------------------------------------------------------------------------
+# Scheduled function: skillboard authoring cron worker
+# ---------------------------------------------------------------------------
+# Fires every 5 minutes so authoring jobs keep progressing even when no admin
+# tab is open. Implementation lives in netlify/functions/scheduled-process-
+# authoring-queue.mts; it proxies to POST /api/cron/process-authoring-queue
+# with the shared-secret auth header.
+#
+# Required env on Netlify (Site settings → Environment variables):
+#   WORKER_CRON_SECRET   = <random ≥32 char string, also set locally for tests>
+#   NEXT_PUBLIC_SITE_URL = https://<your-site>.netlify.app
+#
+# Verify it's running:
+#   - Netlify dashboard → Functions → "scheduled-process-authoring-queue"
+#   - Or invoke the underlying endpoint directly:
+#       curl -X POST -H "Authorization: Bearer $WORKER_CRON_SECRET" \
+#         https://<your-site>.netlify.app/api/cron/process-authoring-queue
+[functions."scheduled-process-authoring-queue"]
+  schedule = "*/5 * * * *"

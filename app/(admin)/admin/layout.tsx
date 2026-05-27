@@ -59,6 +59,24 @@ export default async function AdminLayout({
               >
                 Assessments
               </Link>
+              <Link
+                href="/admin/skillboards"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                Skillboards
+              </Link>
+              <Link
+                href="/admin/candidate-profiles"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                Profiles
+              </Link>
+              <Link
+                href="/admin/question-bank-proposals"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                Proposals
+              </Link>
               {CAN.viewUsersPage(role) && (
                 <Link
                   href="/admin/users"

@@ -4,30 +4,53 @@
  * TextResponseInput — fallback for open-ended questions when the candidate
  * prefers to type. Mirrors the VoiceRecorder shell (heading + "Record
  * instead" toggle) so the layout doesn't shift on switch.
+ *
+ * Exposes a `getTimeoutPayload` imperative handle: on per-question timeout
+ * the parent calls this, and we submit the typed text ONLY if the candidate
+ * cleared the same 20-char minimum that's enforced on manual submit. Below
+ * the minimum, the timeout submits empty — same outcome as if they'd never
+ * typed anything.
  */
 
-import { useState } from "react";
+import { forwardRef, useImperativeHandle, useState } from "react";
 
+import type { AnswerPayload } from "@/lib/state/candidate-session";
 import { cn } from "@/lib/utils";
 
 const MIN_LENGTH = 20;
 const MAX_LENGTH = 4000;
 
-export function TextResponseInput({
-  onSubmit,
-  onCancelToVoice,
-  disabled = false,
-}: {
-  onSubmit: (text: string) => void;
-  onCancelToVoice: () => void;
-  disabled?: boolean;
-}) {
+export type TextResponseInputHandle = {
+  getTimeoutPayload: () => AnswerPayload;
+};
+
+export const TextResponseInput = forwardRef<
+  TextResponseInputHandle,
+  {
+    onSubmit: (text: string) => void;
+    onCancelToVoice: () => void;
+    disabled?: boolean;
+  }
+>(function TextResponseInput({ onSubmit, onCancelToVoice, disabled = false }, ref) {
   const [text, setText] = useState("");
 
   const trimmed = text.trim();
   const tooShort = trimmed.length > 0 && trimmed.length < MIN_LENGTH;
   const overLimit = trimmed.length > MAX_LENGTH;
   const canSubmit = !disabled && trimmed.length >= MIN_LENGTH && !overLimit;
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      getTimeoutPayload: (): AnswerPayload => {
+        if (trimmed.length >= MIN_LENGTH && !overLimit) {
+          return { selectedOptions: [], textResponse: trimmed };
+        }
+        return { selectedOptions: [] };
+      },
+    }),
+    [trimmed, overLimit],
+  );
 
   return (
     <div className="rounded-2xl border border-border bg-card p-4">
@@ -92,4 +115,4 @@ export function TextResponseInput({
       </button>
     </div>
   );
-}
+});

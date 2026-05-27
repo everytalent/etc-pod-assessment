@@ -12,11 +12,26 @@
  *
  * Hard 5-minute cap. The candidate can re-record before submit; old blob
  * is discarded. Once submitted, parent component disables further input.
+ *
+ * Timeout (per-question timer expiry): the parent calls our
+ * `flushOnTimeout()` imperative handle. We try to capture whatever the
+ * candidate has — stop an in-flight recording, upload its blob, and submit
+ * with audio_path. If we can't recover usable audio (no blob, or upload
+ * failed) but the candidate WAS recording, we return recordingAttempted=true
+ * so reviewers see effort was made.
  */
 
 import { motion } from "framer-motion";
-import { useEffect, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 
+import type { AnswerPayload } from "@/lib/state/candidate-session";
 import { cn } from "@/lib/utils";
 
 const MAX_SECONDS = 5 * 60; // 5 minutes per the user's spec
@@ -28,17 +43,22 @@ export type VoiceUploadResult = {
   durationSeconds: number;
 };
 
-export function VoiceRecorder({
-  questionId,
-  onUploaded,
-  onCancelToText,
-  disabled = false,
-}: {
-  questionId: string;
-  onUploaded: (result: VoiceUploadResult) => void;
-  onCancelToText: () => void;
-  disabled?: boolean;
-}) {
+export type VoiceRecorderHandle = {
+  flushOnTimeout: () => Promise<AnswerPayload>;
+};
+
+export const VoiceRecorder = forwardRef<
+  VoiceRecorderHandle,
+  {
+    questionId: string;
+    onUploaded: (result: VoiceUploadResult) => void;
+    onCancelToText: () => void;
+    disabled?: boolean;
+  }
+>(function VoiceRecorder(
+  { questionId, onUploaded, onCancelToText, disabled = false },
+  ref,
+) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -50,6 +70,19 @@ export function VoiceRecorder({
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const blobRef = useRef<Blob | null>(null);
   const mimeRef = useRef<string>("audio/webm");
+  // Resolved with the final blob whenever MediaRecorder fires `onstop`.
+  // The recording-mid-timeout path awaits this to grab the bytes before
+  // attempting upload.
+  const stopResolversRef = useRef<((blob: Blob | null) => void)[]>([]);
+  const elapsedRef = useRef(0);
+  const phaseRef = useRef<Phase>("idle");
+
+  useEffect(() => {
+    elapsedRef.current = elapsed;
+  }, [elapsed]);
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
 
   // Clean up the temporary playback URL when the component unmounts or the
   // blob is replaced.
@@ -66,6 +99,40 @@ export function VoiceRecorder({
     }
   }
 
+  const uploadBlob = useCallback(
+    async (blob: Blob): Promise<{ audioPath: string }> => {
+      const urlRes = await fetch("/api/answers/voice/upload-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question_id: questionId }),
+      });
+      if (!urlRes.ok) {
+        const body = await urlRes.text().catch(() => "");
+        throw new Error(
+          `upload-url ${urlRes.status}: ${body || urlRes.statusText}`,
+        );
+      }
+      const { upload_url, audio_path } = (await urlRes.json()) as {
+        upload_url: string;
+        audio_path: string;
+      };
+      // Strip ";codecs=..." parameter — Supabase Storage's allowed_mime_types
+      // check is exact-string.
+      const baseMime = mimeRef.current.split(";")[0]!.trim();
+      const putRes = await fetch(upload_url, {
+        method: "PUT",
+        headers: { "Content-Type": baseMime },
+        body: blob,
+      });
+      if (!putRes.ok) {
+        const body = await putRes.text().catch(() => "");
+        throw new Error(`upload ${putRes.status}: ${body || putRes.statusText}`);
+      }
+      return { audioPath: audio_path };
+    },
+    [questionId],
+  );
+
   async function startRecording() {
     setError(null);
     if (typeof window === "undefined" || !navigator.mediaDevices) {
@@ -75,7 +142,6 @@ export function VoiceRecorder({
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // Pick the most compatible MIME the browser supports.
       const candidates = [
         "audio/webm;codecs=opus",
         "audio/webm",
@@ -99,11 +165,17 @@ export function VoiceRecorder({
       recorder.onstop = () => {
         clearTick();
         const blob = new Blob(chunksRef.current, { type: mime });
-        blobRef.current = blob;
-        setBlobUrl(URL.createObjectURL(blob));
+        blobRef.current = blob.size > 0 ? blob : null;
+        if (blob.size > 0) {
+          setBlobUrl(URL.createObjectURL(blob));
+        }
         // Stop the underlying tracks so the mic indicator turns off.
         for (const t of stream.getTracks()) t.stop();
         setPhase("recorded");
+        // Wake up any pending flushOnTimeout() callers.
+        const resolvers = stopResolversRef.current;
+        stopResolversRef.current = [];
+        for (const r of resolvers) r(blobRef.current);
       };
 
       recorder.start(/* timeslice */ 1000);
@@ -157,44 +229,71 @@ export function VoiceRecorder({
     setPhase("uploading");
     setError(null);
     try {
-      // 1. Mint signed upload URL.
-      const urlRes = await fetch("/api/answers/voice/upload-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question_id: questionId }),
-      });
-      if (!urlRes.ok) {
-        const body = await urlRes.text().catch(() => "");
-        throw new Error(`upload-url ${urlRes.status}: ${body || urlRes.statusText}`);
-      }
-      const { upload_url, audio_path } = (await urlRes.json()) as {
-        upload_url: string;
-        audio_path: string;
-      };
-
-      // 2. PUT the blob. Strip the ";codecs=..." parameter from the
-      // Content-Type — Supabase Storage's allowed_mime_types check is
-      // exact-string, and "audio/webm;codecs=opus" doesn't match the
-      // "audio/webm" entry in the bucket allowlist. The bytes are
-      // unchanged either way.
-      const baseMime = mimeRef.current.split(";")[0]!.trim();
-      const putRes = await fetch(upload_url, {
-        method: "PUT",
-        headers: { "Content-Type": baseMime },
-        body: blob,
-      });
-      if (!putRes.ok) {
-        const body = await putRes.text().catch(() => "");
-        throw new Error(`upload ${putRes.status}: ${body || putRes.statusText}`);
-      }
-
-      // 3. Tell the parent to send /api/answers with the audio_path.
-      onUploaded({ audioPath: audio_path, durationSeconds: elapsed });
+      const { audioPath } = await uploadBlob(blob);
+      onUploaded({ audioPath, durationSeconds: elapsed });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
       setPhase("error");
     }
   }
+
+  // Imperative handle for parent's timeout flow. Always resolves with a
+  // payload — never throws — so the assessment can advance no matter what.
+  useImperativeHandle(
+    ref,
+    () => ({
+      flushOnTimeout: async (): Promise<AnswerPayload> => {
+        const startPhase = phaseRef.current;
+
+        // Nothing in flight: just submit empty so the question advances.
+        if (startPhase === "idle" || startPhase === "error") {
+          return { selectedOptions: [] };
+        }
+
+        // Already uploading — the in-flight submit() will finalize and call
+        // onUploaded. Treat as attempted so we don't double-submit; the
+        // store guards against re-entry anyway.
+        if (startPhase === "uploading") {
+          return { selectedOptions: [], recordingAttempted: true };
+        }
+
+        // If currently recording, stop and wait for the blob.
+        let durationSeconds = elapsedRef.current;
+        let blob: Blob | null = blobRef.current;
+        if (startPhase === "recording") {
+          blob = await new Promise<Blob | null>((resolve) => {
+            stopResolversRef.current.push(resolve);
+            stopRecording();
+          });
+          // Safari/some browsers may not surface a final ondataavailable
+          // until after onstop fires; chunksRef should be settled by now.
+          durationSeconds = elapsedRef.current;
+        }
+
+        if (!blob || blob.size === 0) {
+          return { selectedOptions: [], recordingAttempted: true };
+        }
+
+        try {
+          const { audioPath } = await uploadBlob(blob);
+          return {
+            selectedOptions: [],
+            audioPath,
+            audioDurationSeconds: durationSeconds,
+          };
+        } catch {
+          // Upload failed at timeout — preserve the "candidate was speaking"
+          // signal for reviewers even though we couldn't keep the audio.
+          return { selectedOptions: [], recordingAttempted: true };
+        }
+      },
+    }),
+    // uploadBlob closes over questionId and mimeRef. questionId is a stable
+    // prop for a question's lifetime; mimeRef is a ref. Re-binding the
+    // handle on every render is harmless — the parent reads it only when
+    // the timer fires.
+    [uploadBlob],
+  );
 
   const remaining = Math.max(0, MAX_SECONDS - elapsed);
   const isUrgent = remaining <= 30 && phase === "recording";
@@ -312,15 +411,6 @@ export function VoiceRecorder({
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              // "Try again" should actually retry — that is, call
-              // getUserMedia again so the browser re-fires its
-              // microphone-permission prompt. Browsers vary: a first
-              // "Don't allow" usually leaves the permission state at
-              // "prompt", so the next call DOES re-prompt; only after
-              // multiple denials do they latch to "denied" and start
-              // silently rejecting. Calling startRecording here gives
-              // candidates the cheapest path back into voice mode
-              // before falling back to the manual-grant message.
               onClick={() => void startRecording()}
               className="inline-flex h-10 items-center justify-center rounded-xl border border-border bg-background px-4 text-xs font-medium hover:border-etc-marigold"
             >
@@ -338,7 +428,7 @@ export function VoiceRecorder({
       )}
     </div>
   );
-}
+});
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);

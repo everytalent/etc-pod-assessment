@@ -64,7 +64,11 @@ export async function GET(
     .innerJoin(questions, eq(questions.id, answers.questionId))
     .where(eq(answers.responseId, id));
 
-  const scorable: { answerId: string; maxPoints: number }[] = [];
+  const scorable: {
+    answerId: string;
+    maxPoints: number;
+    needsTranscription: boolean;
+  }[] = [];
   const skipped: string[] = [];
   for (const r of rows) {
     if (r.questionType !== "open") continue;
@@ -73,13 +77,27 @@ export async function GET(
       continue;
     }
     const txt = (r.transcript ?? "").trim() || (r.textResponse ?? "").trim();
-    if (!txt) {
-      skipped.push(
-        `${r.answerId.slice(0, 8)} (${r.audioPath ? "needs transcript" : "no answer"})`,
-      );
+    if (txt) {
+      scorable.push({
+        answerId: r.answerId,
+        maxPoints: r.points,
+        needsTranscription: false,
+      });
       continue;
     }
-    scorable.push({ answerId: r.answerId, maxPoints: r.points });
+    // No text yet — but if the candidate left an audio path, cross-check-step
+    // will transcribe inline before scoring. Treat as scorable so reviewers
+    // don't see "needs transcript" rejections for answers we can handle
+    // automatically.
+    if (r.audioPath) {
+      scorable.push({
+        answerId: r.answerId,
+        maxPoints: r.points,
+        needsTranscription: true,
+      });
+      continue;
+    }
+    skipped.push(`${r.answerId.slice(0, 8)} (no answer)`);
   }
 
   const ids = scorable.map((s) => s.answerId);

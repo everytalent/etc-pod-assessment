@@ -7,18 +7,34 @@
  *
  * onSubmit takes the full AnswerPayload — caller (ChatShell) just forwards
  * to the Zustand store.
+ *
+ * Exposes `getTimeoutPayload()` via a ref so ChatShell can capture whatever
+ * the candidate has at the moment their per-question timer fires:
+ *   - MCQ: empty (click-to-submit already fired if they picked anything)
+ *   - Text: typed text iff it cleared the 20-char minimum
+ *   - Voice: stop + upload current recording; flag recordingAttempted if
+ *     the upload fails or there are no bytes
  */
 
 "use client";
 
-import { useState } from "react";
+import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 
 import type { CandidateQuestion } from "@/lib/assessment/validators";
 import type { AnswerPayload } from "@/lib/state/candidate-session";
 import { cn } from "@/lib/utils";
 
-import { TextResponseInput } from "./TextResponseInput";
-import { VoiceRecorder } from "./VoiceRecorder";
+import {
+  TextResponseInput,
+  type TextResponseInputHandle,
+} from "./TextResponseInput";
+import { SliderAnswerInput } from "./SliderAnswerInput";
+import { VoiceRecorder, type VoiceRecorderHandle } from "./VoiceRecorder";
+
+export type AnswerInputHandle = {
+  /** Resolve with the best payload we can produce for a timeout submit. */
+  getTimeoutPayload: () => Promise<AnswerPayload>;
+};
 
 type Props = {
   question: CandidateQuestion;
@@ -26,33 +42,63 @@ type Props = {
   disabled?: boolean;
 };
 
-export function AnswerInput({ question, onSubmit, disabled = false }: Props) {
-  if (question.type === "mcq" || question.type === "true_false") {
-    return (
-      <McqAnswerInput
-        question={question}
-        onSubmit={onSubmit}
-        disabled={disabled}
-      />
-    );
-  }
+export const AnswerInput = forwardRef<AnswerInputHandle, Props>(
+  function AnswerInput({ question, onSubmit, disabled = false }, ref) {
+    const openRef = useRef<OpenEndedAnswerInputHandle>(null);
 
-  if (question.type === "open") {
-    return (
-      <OpenEndedAnswerInput
-        question={question}
-        onSubmit={onSubmit}
-        disabled={disabled}
-      />
+    useImperativeHandle(
+      ref,
+      () => ({
+        getTimeoutPayload: async (): Promise<AnswerPayload> => {
+          if (question.type === "open" && openRef.current) {
+            return openRef.current.getTimeoutPayload();
+          }
+          // MCQ / true_false / unsupported types: timeout always sends empty.
+          // (Click-to-submit means a chosen option is already on its way.)
+          return { selectedOptions: [] };
+        },
+      }),
+      [question.type],
     );
-  }
 
-  return (
-    <div className="rounded-xl border border-dashed bg-card p-4 text-xs text-muted-foreground">
-      This question type isn&rsquo;t available yet. Skip to continue.
-    </div>
-  );
-}
+    if (question.type === "mcq" || question.type === "true_false") {
+      return (
+        <McqAnswerInput
+          question={question}
+          onSubmit={onSubmit}
+          disabled={disabled}
+        />
+      );
+    }
+
+    if (question.type === "open") {
+      return (
+        <OpenEndedAnswerInput
+          ref={openRef}
+          question={question}
+          onSubmit={onSubmit}
+          disabled={disabled}
+        />
+      );
+    }
+
+    if (question.type === "slider") {
+      return (
+        <SliderAnswerInput
+          question={question}
+          onSubmit={onSubmit}
+          disabled={disabled}
+        />
+      );
+    }
+
+    return (
+      <div className="rounded-xl border border-dashed bg-card p-4 text-xs text-muted-foreground">
+        This question type isn&rsquo;t available yet. Skip to continue.
+      </div>
+    );
+  },
+);
 
 /* ---------- MCQ / T-F ---------- */
 
@@ -102,37 +148,63 @@ function McqAnswerInput({ question, onSubmit, disabled }: Props) {
 
 type Mode = "voice" | "text";
 
-function OpenEndedAnswerInput({ question, onSubmit, disabled }: Props) {
-  // Voice is the default per spec; toggle to text if candidate prefers / can't record.
-  const [mode, setMode] = useState<Mode>("voice");
+type OpenEndedAnswerInputHandle = {
+  getTimeoutPayload: () => Promise<AnswerPayload>;
+};
 
-  if (mode === "voice") {
+const OpenEndedAnswerInput = forwardRef<OpenEndedAnswerInputHandle, Props>(
+  function OpenEndedAnswerInput({ question, onSubmit, disabled }, ref) {
+    // Voice is the default per spec; toggle to text if candidate prefers / can't record.
+    const [mode, setMode] = useState<Mode>("voice");
+    const voiceRef = useRef<VoiceRecorderHandle>(null);
+    const textRef = useRef<TextResponseInputHandle>(null);
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        getTimeoutPayload: async (): Promise<AnswerPayload> => {
+          if (mode === "voice" && voiceRef.current) {
+            return voiceRef.current.flushOnTimeout();
+          }
+          if (mode === "text" && textRef.current) {
+            return textRef.current.getTimeoutPayload();
+          }
+          return { selectedOptions: [] };
+        },
+      }),
+      [mode],
+    );
+
+    if (mode === "voice") {
+      return (
+        <VoiceRecorder
+          ref={voiceRef}
+          questionId={question.id}
+          disabled={disabled}
+          onCancelToText={() => setMode("text")}
+          onUploaded={(result) => {
+            onSubmit({
+              selectedOptions: [],
+              audioPath: result.audioPath,
+              audioDurationSeconds: result.durationSeconds,
+            });
+          }}
+        />
+      );
+    }
+
     return (
-      <VoiceRecorder
-        questionId={question.id}
+      <TextResponseInput
+        ref={textRef}
         disabled={disabled}
-        onCancelToText={() => setMode("text")}
-        onUploaded={(result) => {
+        onCancelToVoice={() => setMode("voice")}
+        onSubmit={(text) => {
           onSubmit({
             selectedOptions: [],
-            audioPath: result.audioPath,
-            audioDurationSeconds: result.durationSeconds,
+            textResponse: text,
           });
         }}
       />
     );
-  }
-
-  return (
-    <TextResponseInput
-      disabled={disabled}
-      onCancelToVoice={() => setMode("voice")}
-      onSubmit={(text) => {
-        onSubmit({
-          selectedOptions: [],
-          textResponse: text,
-        });
-      }}
-    />
-  );
-}
+  },
+);

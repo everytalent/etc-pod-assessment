@@ -17,7 +17,7 @@ import type { CandidateQuestion } from "@/lib/assessment/validators";
 import type { ResumedHistoryEntry } from "@/lib/assessment/queries";
 import { useCandidateSession } from "@/lib/state/candidate-session";
 
-import { AnswerInput } from "./AnswerInput";
+import { AnswerInput, type AnswerInputHandle } from "./AnswerInput";
 import {
   ActiveQuestionBubble,
   LockedQuestionBubble,
@@ -91,9 +91,24 @@ export function ChatShell({ initial }: { initial: ChatShellInitial }) {
   // Total may be wrong (branching), so progress denominator is max(total,
   // history+1) — always at least one step ahead of the answered count.
   const denom = Math.max(initial.totalQuestions, history.length + 1);
+
+  // AnswerInput exposes its current state through this ref so the timeout
+  // path can capture whatever the candidate has — typed text past the min
+  // length, an in-flight voice recording, etc. — before the question
+  // auto-advances.
+  const answerRef = useRef<AnswerInputHandle | null>(null);
   const onTimeout = () => {
     if (isSubmitting) return;
-    void submitAnswer({ selectedOptions: [] });
+    void (async () => {
+      const payload = answerRef.current
+        ? await answerRef.current.getTimeoutPayload()
+        : { selectedOptions: [] };
+      // Re-check isSubmitting after the async hop — voice flush can take
+      // a few seconds, and the candidate might have submitted manually
+      // in the meantime.
+      if (useCandidateSession.getState().isSubmitting) return;
+      void submitAnswer(payload);
+    })();
   };
 
   return (
@@ -130,6 +145,7 @@ export function ChatShell({ initial }: { initial: ChatShellInitial }) {
 
         {currentQuestion && (
           <AnswerInput
+            ref={answerRef}
             key={`input-${currentQuestion.id}`}
             question={currentQuestion}
             onSubmit={(payload) => {

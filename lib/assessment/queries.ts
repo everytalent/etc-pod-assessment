@@ -67,6 +67,10 @@ export async function getCandidateQuestion(
       timeoutAction: questions.timeoutAction,
       required: questions.required,
       section: questions.section,
+      // Validation Engine interactive types need this on the candidate
+      // side so the answer component can render its custom input.
+      // Null for non-interactive types.
+      interactiveConfig: questions.interactiveConfig,
     })
     .from(questions)
     .where(eq(questions.id, questionId))

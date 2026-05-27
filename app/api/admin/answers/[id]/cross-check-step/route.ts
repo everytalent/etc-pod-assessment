@@ -23,7 +23,10 @@ import {
   canRunAiPipeline,
   loadAiScoringRoles,
 } from "@/lib/auth/feature-flags";
-import { scoreOpenEnded as geminiScore } from "@/lib/ai/gemini";
+import {
+  scoreOpenEnded as geminiScore,
+  transcribeAudio,
+} from "@/lib/ai/gemini";
 import { scoreOpenEndedKimi as kimiScore } from "@/lib/ai/kimi";
 import type { ScoreSuggestion } from "@/lib/ai/scoring";
 import { db } from "@/lib/db/client";
@@ -33,6 +36,11 @@ import {
   answers,
   questions,
 } from "@/lib/db/schema";
+import {
+  getStorageAdmin,
+  VOICE_BUCKET,
+} from "@/lib/supabase/storage-admin";
+import { isZohoArchived } from "@/lib/zoho/archive";
 
 const inputSchema = z.object({
   provider: z.enum(["gemini", "kimi"]),
@@ -69,6 +77,7 @@ export async function POST(
       responseId: answers.responseId,
       transcript: answers.transcript,
       textResponse: answers.textResponse,
+      audioPath: answers.audioPath,
       questionType: questions.type,
       questionText: questions.questionText,
       rubric: questions.scoringRubric,
@@ -88,8 +97,57 @@ export async function POST(
       { status: 400 },
     );
   }
-  const candidateAnswer =
+  let candidateAnswer =
     (row.transcript ?? "").trim() || (row.textResponse ?? "").trim();
+  // Auto-transcribe if the candidate left audio but no transcript yet. The
+  // pipeline used to reject these with "needs transcript" and force the
+  // admin to click Transcribe per-answer — we transparently fill it in so
+  // a single Run AI scoring covers voice answers too. Archived audio
+  // (path starts with 'zoho:') can't be recovered, so we surface the
+  // friendlier message.
+  if (!candidateAnswer && row.audioPath) {
+    if (isZohoArchived(row.audioPath)) {
+      return NextResponse.json(
+        {
+          error: "audio_archived",
+          message:
+            "Audio is archived to Zoho — transcribe before archiving next time.",
+        },
+        { status: 409 },
+      );
+    }
+    try {
+      const supa = getStorageAdmin();
+      const { data: blob, error: dlError } = await supa.storage
+        .from(VOICE_BUCKET)
+        .download(row.audioPath);
+      if (dlError || !blob) {
+        return NextResponse.json(
+          {
+            error: "download_failed",
+            message: dlError?.message ?? "Couldn't fetch audio from storage.",
+          },
+          { status: 502 },
+        );
+      }
+      const audio = await blob.arrayBuffer();
+      const mimeType = blob.type || "audio/webm";
+      const transcript = await transcribeAudio({ audio, mimeType });
+      await db
+        .update(answers)
+        .set({ transcript })
+        .where(eq(answers.id, id));
+      candidateAnswer = transcript.trim();
+    } catch (err) {
+      return NextResponse.json(
+        {
+          error: "transcription_failed",
+          message: err instanceof Error ? err.message : "unknown",
+        },
+        { status: 502 },
+      );
+    }
+  }
   if (!candidateAnswer) {
     return NextResponse.json(
       {

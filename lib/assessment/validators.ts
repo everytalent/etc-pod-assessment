@@ -53,6 +53,18 @@ export const submitAnswerSchema = z
       .min(0)
       .max(60 * 10)
       .optional(),
+    /**
+     * Timeout-only signal: the candidate was actively recording (or typing
+     * below the 20-char minimum) when the timer ran out, but we couldn't
+     * recover usable input. Set by the client's auto-submit-on-timeout path.
+     */
+    recording_attempted: z.boolean().optional(),
+    /**
+     * Structured payload for interactive types (slider, hotspot, sequence,
+     * matching, scenario, formula). Schema-validated server-side per
+     * question type via the type registry.
+     */
+    structured_answer: z.unknown().optional(),
   })
   .superRefine((val, ctx) => {
     // Open-ended payload sanity: at most one of text/audio.
@@ -80,7 +92,13 @@ export type CandidateQuestion = {
     | "open"
     | "voice"
     | "file"
-    | "formula";
+    | "formula"
+    // Talent Validation Engine extensions (Phase 2):
+    | "hotspot"
+    | "sequence"
+    | "slider"
+    | "matching"
+    | "scenario";
   questionText: string;
   options: { id: string; label: string }[];
   points: number;
@@ -90,6 +108,14 @@ export type CandidateQuestion = {
   timeoutAction: "auto_submit" | "skip" | "mark_incorrect";
   required: boolean;
   section: string | null;
+  /**
+   * Type-specific config for interactive types (slider range/tolerance,
+   * hotspot regions, sequence items, matching pairs, scenario tree).
+   * Null for non-interactive types (mcq/true_false/open/voice/file/formula).
+   * Validated client-side by the type's component using the schema in
+   * lib/engines/assessment/question-types/.
+   */
+  interactiveConfig: unknown;
 };
 
 export type StartSessionResponse = {
