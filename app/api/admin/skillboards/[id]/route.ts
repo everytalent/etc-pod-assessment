@@ -12,8 +12,12 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
-import { requireSkillboardAccessApi } from "@/lib/auth/admin";
 import {
+  requireSkillboardAccessApi,
+  requireSuperAdminApi,
+} from "@/lib/auth/admin";
+import {
+  deleteSkillboard,
   getSkillboardDetail,
   patchSkillboard,
 } from "@/lib/engines/assessment/skillboards/repository";
@@ -71,4 +75,31 @@ export async function PATCH(
   });
 
   return NextResponse.json({ ok: true });
+}
+
+/**
+ * DELETE /api/admin/skillboards/[id]
+ *
+ * Hard-deletes a skillboard and everything it owns (skills, tasks,
+ * level_expectations, authoring jobs — all via ON DELETE CASCADE).
+ * question_bank_proposals stay as orphaned rows (their FK to tasks is
+ * set null on delete, intentional).
+ *
+ * Permission: SUPERADMIN ONLY. This is destructive and irreversible —
+ * no soft-delete, no restore. Editors with skillboard_access can edit
+ * and rename, but cannot delete.
+ */
+export async function DELETE(
+  _req: Request,
+  context: { params: Promise<{ id: string }> },
+): Promise<NextResponse> {
+  const auth = await requireSuperAdminApi();
+  if (!auth.user) return auth.unauthorized;
+
+  const { id } = await context.params;
+  const ok = await deleteSkillboard(id);
+  if (!ok) {
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+  return NextResponse.json({ deleted: true });
 }

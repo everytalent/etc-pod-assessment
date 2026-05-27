@@ -337,6 +337,26 @@ export async function getSkillboardDetail(
 
 /* ---------- Edit board ---------- */
 
+/**
+ * Hard-delete a skillboard and everything it owns. ON DELETE CASCADE
+ * on the FKs handles: skills → tasks → level_expectations, plus
+ * skillboard_authoring_jobs.
+ *
+ * Does NOT touch: question_bank_proposals (their FK to tasks is
+ * onDelete: 'set null', so they stay as orphaned proposal rows that
+ * mention the now-deleted spec/task — by design, so a deleted board
+ * doesn't silently drop pending bank submissions).
+ *
+ * Returns true if a row was actually deleted (false = no-op / not found).
+ */
+export async function deleteSkillboard(id: string): Promise<boolean> {
+  const deleted = await db
+    .delete(skillboards)
+    .where(eq(skillboards.id, id))
+    .returning({ id: skillboards.id });
+  return deleted.length > 0;
+}
+
 export async function patchSkillboard(
   id: string,
   updates: {

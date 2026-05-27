@@ -41,6 +41,7 @@ export default async function SkillboardDetailPage(props: {
     <SkillboardDetailView
       initial={detail}
       canApprove={auth.session.admin.canApproveSkillboards}
+      canDelete={auth.session.admin.role === "superadmin"}
     />
   );
 }

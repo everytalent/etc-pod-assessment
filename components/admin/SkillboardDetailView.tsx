@@ -46,9 +46,16 @@ type AuthoringStatus = {
 export function SkillboardDetailView({
   initial,
   canApprove,
+  canDelete = false,
 }: {
   initial: SkillboardDetail;
   canApprove: boolean;
+  /**
+   * Superadmin-only — gates the destructive Delete button. Editors with
+   * skillboard_access can still rename + edit metadata, but only
+   * superadmin can hard-delete a board.
+   */
+  canDelete?: boolean;
 }) {
   const [board, setBoard] = useState<SkillboardDetail>(initial);
   const [authoringStatus, setAuthoringStatus] =
@@ -216,6 +223,31 @@ export function SkillboardDetailView({
    * Patch board-level metadata (specialisation, description, mindsets,
    * behavioural_skills). Used by the EditBoardPanel.
    */
+  /**
+   * Delete the board. Superadmin-only (button gated by canDelete).
+   * Asks the user to type the exact specialisation as confirmation so a
+   * misclick can't wipe months of authoring work.
+   */
+  async function onDeleteBoard(): Promise<void> {
+    const confirmed = prompt(
+      `Type the board name exactly to confirm DELETE:\n\n${board.specialisation}\n\nThis cannot be undone. Every skill, task, cell, and authoring job will be removed.`,
+    );
+    if (confirmed === null) return; // cancelled
+    if (confirmed.trim() !== board.specialisation) {
+      alert("Name didn't match. Delete cancelled.");
+      return;
+    }
+    const res = await fetch(`/api/admin/skillboards/${initial.id}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      const data = (await res.json()) as { message?: string; error?: string };
+      alert(data.message ?? data.error ?? "Delete failed.");
+      return;
+    }
+    window.location.href = "/admin/skillboards";
+  }
+
   async function onPatchBoard(updates: {
     specialisation?: string;
     description?: string;
@@ -274,13 +306,24 @@ export function SkillboardDetailView({
             {board.cell_counts.total} cells total
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setEditingBoard(true)}
-          className="rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium hover:border-etc-marigold"
-        >
-          ✏️ Edit board
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setEditingBoard(true)}
+            className="rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium hover:border-etc-marigold"
+          >
+            ✏️ Edit board
+          </button>
+          {canDelete && (
+            <button
+              type="button"
+              onClick={onDeleteBoard}
+              className="rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-900 hover:bg-red-100"
+            >
+              🗑 Delete
+            </button>
+          )}
+        </div>
       </header>
 
       {editingBoard && (
