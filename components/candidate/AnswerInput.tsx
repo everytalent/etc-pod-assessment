@@ -28,6 +28,10 @@ import {
   TextResponseInput,
   type TextResponseInputHandle,
 } from "./TextResponseInput";
+import { HotspotAnswerInput } from "./HotspotAnswerInput";
+import { MatchingAnswerInput } from "./MatchingAnswerInput";
+import { ScenarioAnswerInput } from "./ScenarioAnswerInput";
+import { SequenceAnswerInput } from "./SequenceAnswerInput";
 import { SliderAnswerInput } from "./SliderAnswerInput";
 import { VoiceRecorder, type VoiceRecorderHandle } from "./VoiceRecorder";
 
@@ -85,6 +89,46 @@ export const AnswerInput = forwardRef<AnswerInputHandle, Props>(
     if (question.type === "slider") {
       return (
         <SliderAnswerInput
+          question={question}
+          onSubmit={onSubmit}
+          disabled={disabled}
+        />
+      );
+    }
+
+    if (question.type === "sequence") {
+      return (
+        <SequenceAnswerInput
+          question={question}
+          onSubmit={onSubmit}
+          disabled={disabled}
+        />
+      );
+    }
+
+    if (question.type === "matching") {
+      return (
+        <MatchingAnswerInput
+          question={question}
+          onSubmit={onSubmit}
+          disabled={disabled}
+        />
+      );
+    }
+
+    if (question.type === "hotspot") {
+      return (
+        <HotspotAnswerInput
+          question={question}
+          onSubmit={onSubmit}
+          disabled={disabled}
+        />
+      );
+    }
+
+    if (question.type === "scenario") {
+      return (
+        <ScenarioAnswerInput
           question={question}
           onSubmit={onSubmit}
           disabled={disabled}
