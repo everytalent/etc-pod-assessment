@@ -113,9 +113,13 @@ export function QuestionEditorModal({
     formState: { errors, isSubmitting },
   } = useForm<UpsertQuestionInput>({
     resolver: zodResolver(upsertQuestionSchema),
+    // Question rows may have an interactive type (slider/hotspot/etc.)
+    // that this modal doesn't yet render. The cast lets the modal load
+    // those rows for legacy-field editing; the type dropdown's
+    // QUESTION_TYPES list keeps users on the supported six.
     defaultValues: question
       ? {
-          type: question.type,
+          type: question.type as UpsertQuestionInput["type"],
           questionText: question.questionText,
           options: question.options,
           correctAnswer: question.correctAnswer,
@@ -246,7 +250,7 @@ export function QuestionEditorModal({
         </div>
 
         <form
-          onSubmit={handleSubmit(onSubmit)}
+          onSubmit={handleSubmit(onSubmit as Parameters<typeof handleSubmit>[0])}
           noValidate
           className="mt-5 grid gap-4"
         >

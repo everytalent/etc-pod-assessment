@@ -66,6 +66,9 @@ importers:
         specifier: ^5.0.12
         version: 5.0.12(@types/react@19.2.14)(react@19.2.4)
     devDependencies:
+      '@netlify/functions':
+        specifier: ^5.2.2
+        version: 5.2.2
       '@tailwindcss/postcss':
         specifier: ^4
         version: 4.2.4
@@ -988,6 +991,14 @@ packages:
     peerDependencies:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
+
+  '@netlify/functions@5.2.2':
+    resolution: {integrity: sha512-gnAV+Cjtr15dbEFaq3PxY7J8Gq3ui+R/iDV+mu6NIU8reeEvLerLHklFimipvGrbymNIkyrgOfniqqoFJr2+0A==}
+    engines: {node: '>=18.0.0'}
+
+  '@netlify/types@2.7.0':
+    resolution: {integrity: sha512-mQeuJR1MJFnqZqJQ74B3WyP6oe2wC41VL/VAWzDj1lgdYDdlwLjFiXyHSziYH9L2cdkjGhiZ+7wdH/uUDuYryg==}
+    engines: {node: ^18.14.0 || >=20}
 
   '@next/env@16.2.4':
     resolution: {integrity: sha512-dKkkOzOSwFYe5RX6y26fZgkSpVAlIOJKQHIiydQcrWH6y/97+RceSOAdjZ14Qa3zLduVUy0TXcn+EiM6t4rPgw==}
@@ -3955,6 +3966,12 @@ snapshots:
       '@emnapi/runtime': 1.10.0
       '@tybys/wasm-util': 0.10.2
     optional: true
+
+  '@netlify/functions@5.2.2':
+    dependencies:
+      '@netlify/types': 2.7.0
+
+  '@netlify/types@2.7.0': {}
 
   '@next/env@16.2.4': {}
 

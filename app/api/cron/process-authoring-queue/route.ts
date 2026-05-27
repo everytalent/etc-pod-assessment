@@ -92,16 +92,21 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     const t0 = Date.now();
     const outcome = await processNextAuthoringJob(oldest.skillboardId);
+    const outcomeLabel = outcome.processed
+      ? outcome.success
+        ? "ok"
+        : "failed"
+      : outcome.reason;
     results.push({
       skillboardId: oldest.skillboardId,
-      outcome: outcome.kind,
+      outcome: outcomeLabel,
       durationMs: Date.now() - t0,
     });
 
     // Stop early if processNextAuthoringJob reports nothing to do — the
     // board's queue might have been drained between our SELECT and the
     // worker's claim (race with browser tab).
-    if (outcome.kind === "no_pending_jobs") break;
+    if (!outcome.processed && outcome.reason === "no_pending_jobs") break;
   }
 
   void desc; // import-keep — kept for future ORDER BY tweaks

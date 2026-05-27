@@ -34,6 +34,12 @@ type AuthoringStatus = {
   in_progress: number;
   completed: number;
   failed: number;
+  /**
+   * Regeneration jobs created via bulk-reject regen_mode='stage'. Sit
+   * pending but paused_until_review=true; worker skips them; banner
+   * lets admin Start (release) or Cancel (delete) them.
+   */
+  staged: number;
   last_error: string | null;
 };
 
@@ -464,7 +470,7 @@ function SkillBlock(props: {
     scope: "row" | "skill" | "all",
     id: string | undefined,
     notes: string,
-    autoRegenerate: boolean,
+    regenMode: "none" | "stage" | "immediate",
   ) => void;
   onRenameTask: (taskId: string, name: string) => void;
 }) {
@@ -622,7 +628,7 @@ function TaskGrid(props: {
   onEdit: (cellId: string, text: string) => void;
   onRegenerate: (cellId: string) => void;
   onBulkApproveRow: () => void;
-  onBulkRejectRow: (notes: string, autoRegenerate: boolean) => void;
+  onBulkRejectRow: (notes: string, regenMode: "none" | "stage" | "immediate") => void;
   onRename: (name: string) => void;
 }) {
   const { task, canApprove } = props;
