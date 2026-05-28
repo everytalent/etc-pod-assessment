@@ -236,6 +236,37 @@ export async function getNextQuestion(
 ): Promise<NextQuestionResult> {
   const ctx = await loadSessionContext(responseId);
 
+  // Validation-mode dispatch: CAT picker, not fixed-order. For the very
+  // first question (no answers yet) we call pickFirstQuestion which
+  // pulls from the bank at claimed_band × 'g' (Growing) per PRD §4.
+  // After the first answer, /api/answers takes over and advances via
+  // advanceValidationFlow — we should not be reached again for
+  // validation-mode mid-session.
+  const [assessment] = await db
+    .select({ mode: assessments.mode, specialisation: assessments.specialisation })
+    .from(assessments)
+    .where(eq(assessments.id, ctx.response.assessmentId))
+    .limit(1);
+
+  if (assessment?.mode === "validation" && ctx.answers.length === 0) {
+    if (!assessment.specialisation) return { kind: "end" };
+    const meta = ctx.response.metadata as ResponseMetadata & {
+      claimed_band?: "junior" | "mid" | "senior";
+    };
+    const claimedBand = meta.claimed_band ?? "junior";
+    const { pickFirstQuestion } = await import(
+      "@/lib/engines/assessment/cat/validation-flow"
+    );
+    const result = await pickFirstQuestion({
+      specialisation: assessment.specialisation,
+      claimedBand,
+    });
+    if ("kind" in result && result.kind === "no_questions") {
+      return { kind: "end" };
+    }
+    return { kind: "next", questionId: (result as { questionId: string }).questionId };
+  }
+
   const allQuestions = [
     ...ctx.answeredQuestions,
     ...ctx.unansweredQuestions,
