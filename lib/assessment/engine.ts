@@ -306,7 +306,11 @@ export async function finalizeResponse(
 }> {
   const ctx = await loadSessionContext(responseId);
   const [assessment] = await db
-    .select({ passThreshold: assessments.passThreshold })
+    .select({
+      passThreshold: assessments.passThreshold,
+      mode: assessments.mode,
+      specialisation: assessments.specialisation,
+    })
     .from(assessments)
     .where(eq(assessments.id, ctx.response.assessmentId))
     .limit(1);
@@ -348,5 +352,116 @@ export async function finalizeResponse(
     })
     .where(and(eq(responses.id, responseId)));
 
+  // Validation-mode follow-up: trigger Kimi synthesis + notify Onboarding.
+  // Awaited (not fire-and-forget) so the candidate's done-screen render
+  // sees a fully synthesised profile, and serverless functions don't
+  // terminate mid-pipeline. ~3-8s extra latency on the submit click;
+  // acceptable for MVP. Move to a queue when this exceeds 10s p95.
+  if (assessment.mode === "validation") {
+    await runValidationPostSubmit({
+      responseId,
+      assessmentSpecialisation: assessment.specialisation,
+      candidateMetadata: ctx.response.metadata,
+    });
+  }
+
   return { totalScore, maxPossibleScore, pass };
+}
+
+/**
+ * Validation-mode post-submit pipeline:
+ *   1. Run Kimi synthesis → writes validation_results + vetted_talent_profile
+ *   2. Fire the completion callback to Onboarding (popup)
+ *
+ * Both steps are best-effort: synthesis failures fall back to
+ * requires_human_review=true; callback failures land in notify_log
+ * for manual replay. The candidate's submit succeeds regardless.
+ */
+async function runValidationPostSubmit(args: {
+  responseId: string;
+  assessmentSpecialisation: string | null;
+  candidateMetadata: ResponseMetadata;
+}): Promise<void> {
+  const meta = args.candidateMetadata as ResponseMetadata & {
+    external_candidate_id?: string;
+    specialisation?: string;
+    claimed_band?: "junior" | "mid" | "senior";
+    redirect_url_after_completion?: string;
+  };
+  const candidateId = meta.external_candidate_id;
+  const spec = args.assessmentSpecialisation ?? meta.specialisation;
+  const claimedBand = meta.claimed_band ?? "junior";
+  if (!candidateId || !spec) {
+    // Session was minted without the validation-flow metadata. Skip
+    // synthesis; admin can run it manually via the response page later.
+    return;
+  }
+
+  let synthOutcome: {
+    synthesised: boolean;
+    cadre?: string;
+    displayLabel?: string;
+  } = { synthesised: false };
+  try {
+    const { synthesiseResponse } = await import(
+      "@/lib/engines/assessment/synthesis/kimi-synthesis"
+    );
+    await synthesiseResponse({
+      responseId: args.responseId,
+      candidateId,
+      claimedBandsBySpec: { [spec]: claimedBand },
+    });
+    // Pull the freshly-written profile row to feed the callback summary.
+    const { vettedTalentProfile } = await import("@/lib/db/schema");
+    const [latest] = await db
+      .select({
+        cadre: vettedTalentProfile.cadre,
+        displayLabel: vettedTalentProfile.displayLabel,
+      })
+      .from(vettedTalentProfile)
+      .where(eq(vettedTalentProfile.responseId, args.responseId))
+      .limit(1);
+    synthOutcome = {
+      synthesised: true,
+      cadre: latest?.cadre,
+      displayLabel: latest?.displayLabel,
+    };
+  } catch (err) {
+    console.warn(
+      "[finalizeResponse] validation synthesis failed:",
+      err instanceof Error ? err.message : "unknown",
+    );
+    // Don't rethrow — candidate's submit must succeed even if synthesis
+    // is misconfigured.
+  }
+
+  // Fire completion callback (no-await semantics not needed — the lib
+  // itself retries with backoff and logs to notify_log on exhaustion).
+  try {
+    const { postValidationCompleted } = await import(
+      "@/lib/engines/assessment/onboarding-completion-callback"
+    );
+    const resultUrl =
+      meta.redirect_url_after_completion ??
+      `${(process.env.ONBOARDING_API_URL ?? "").replace(/\/$/, "")}/candidate/profile`;
+    await postValidationCompleted({
+      candidate_id: candidateId,
+      session_id: args.responseId,
+      completed_at: new Date().toISOString(),
+      per_spec_summary: [
+        {
+          specialisation: spec,
+          cadre: synthOutcome.cadre ?? "int",
+          display_label:
+            synthOutcome.displayLabel ?? `Validation result for ${spec}`,
+        },
+      ],
+      result_url: resultUrl,
+    });
+  } catch (err) {
+    console.warn(
+      "[finalizeResponse] completion callback errored:",
+      err instanceof Error ? err.message : "unknown",
+    );
+  }
 }
