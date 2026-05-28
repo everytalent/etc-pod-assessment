@@ -31,7 +31,7 @@ import {
 } from "@/lib/db/schema";
 import { callOpusRaw, withOpusBudget } from "@/lib/ai/opus";
 
-const QUESTIONS_PER_CELL = 5;
+const DEFAULT_QUESTIONS_PER_CELL = 5;
 
 const opusSeedOutputSchema = z.object({
   questions: z
@@ -78,7 +78,15 @@ export async function seedQuestionsForCell(args: {
   level: PerformanceLevel;
   taskId: string;
   proposedBy?: ProposalSource;
+  /**
+   * Optional override of the questions Opus generates in one call. The
+   * schema requires ≥3; raising it costs proportionally more Opus time
+   * (each Q is ~3-6s of generation). The test-seed route passes 3 to
+   * fit within the 60s function timeout.
+   */
+  questionsPerCell?: number;
 }): Promise<{ enqueued: number }> {
+  const questionsPerCell = args.questionsPerCell ?? DEFAULT_QUESTIONS_PER_CELL;
   const ctx = await db
     .select({
       taskName: tasks.name,
@@ -98,7 +106,7 @@ export async function seedQuestionsForCell(args: {
   const row = ctx[0];
   if (!row) throw new Error(`task not found: ${args.taskId}`);
 
-  const system = `You author assessment questions for ETC, a vetted-talent platform for the African solar industry. Generate ${QUESTIONS_PER_CELL} candidate-facing questions anchored to:
+  const system = `You author assessment questions for ETC, a vetted-talent platform for the African solar industry. Generate ${questionsPerCell} candidate-facing questions anchored to:
 - Specialisation: ${args.specialisation}
 - Skill: ${row.skillName}
 - Task: ${row.taskName}

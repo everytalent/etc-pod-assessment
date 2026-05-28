@@ -37,6 +37,15 @@ import {
 import { seedQuestionsForCell } from "@/lib/engines/assessment/proposals/opus-seed";
 import { getOrCreateValidationBank } from "@/lib/engines/assessment/proposals/validation-bank";
 
+/**
+ * Extend the serverless function timeout. Opus produces ~3-5s per
+ * question; with the schema minimum of 3 questions per cell + the
+ * approval merge step, ~30-40s is realistic. Default Netlify cap is
+ * ~30s which caused the earlier 504. 60s gives comfortable margin
+ * before we need a real async pipeline.
+ */
+export const maxDuration = 60;
+
 const inputSchema = z.object({
   max_cells: z.number().int().min(1).max(5).default(1),
   only_band: z.enum(["junior", "mid", "senior"]).optional(),
@@ -129,11 +138,15 @@ export async function POST(
 
   for (const t of capped) {
     try {
+      // Generate the schema minimum (3) per cell to fit comfortably
+      // inside the 60s function timeout. Production seeding via
+      // /api/admin/jobs/opus-seed can still use the default 5.
       const r = await seedQuestionsForCell({
         specialisation: board.specialisation,
         band: t.band,
         level: t.level,
         taskId: t.taskId,
+        questionsPerCell: 3,
       });
       totalEnqueued += r.enqueued;
     } catch (err) {
