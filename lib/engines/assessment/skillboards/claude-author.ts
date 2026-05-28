@@ -320,6 +320,12 @@ export async function processNextAuthoringJob(
         claimed.skillboardId,
         claimed.levelExpectationId,
       );
+    } else if (claimed.jobType === "structure") {
+      await processStructureJob(
+        claimed.id,
+        claimed.skillboardId,
+        claimed.result,
+      );
     } else {
       throw new Error(`unsupported job_type: ${claimed.jobType}`);
     }
@@ -657,3 +663,57 @@ function parseJsonResponse<T>(raw: string, schema: z.ZodSchema<T>): T {
 // `Skillboard` type satisfies lint — keeps tree-shaking happy if this
 // file ends up being the entry point for an isolated authoring tool.
 export type { Skillboard };
+
+/* ---------- Worker: structure job ---------- */
+
+/**
+ * Async structure-authoring job handler. Called by processNextAuthoringJob
+ * when claimed.jobType === 'structure'.
+ *
+ * Reads board metadata (specialisation, brief) directly from the row,
+ * plus any reference URLs stashed in job.result at enqueue time. Runs
+ * the same runStructureAuthoring as the synchronous path used to. On
+ * success, the worker also enqueues the per-task task_cells jobs
+ * (the same fan-out as before) — runStructureAuthoring already does
+ * that internally.
+ *
+ * Why async: Netlify's 30s function timeout was killing the synchronous
+ * route. This pattern lets POST /api/admin/skillboards return immediately
+ * (200ms) with a skillboard_id; the cron worker runs structure (~30-60s)
+ * on its 5-minute tick, no timeout.
+ */
+async function processStructureJob(
+  jobId: string,
+  skillboardId: string,
+  resultPayload: unknown,
+): Promise<void> {
+  const [board] = await db
+    .select({
+      specialisation: skillboards.specialisation,
+      brief: skillboards.claudeAuthoringBrief,
+    })
+    .from(skillboards)
+    .where(eq(skillboards.id, skillboardId))
+    .limit(1);
+  if (!board) {
+    throw new Error(`structure job ${jobId}: skillboard not found`);
+  }
+  if (!board.brief || board.brief.trim().length === 0) {
+    throw new Error(
+      `structure job ${jobId}: skillboard missing claude_authoring_brief`,
+    );
+  }
+
+  const stashed = (resultPayload ?? {}) as {
+    reference_urls?: string[];
+  };
+
+  await runStructureAuthoring({
+    skillboardId,
+    args: {
+      specialisation: board.specialisation,
+      brief: board.brief,
+      referenceUrls: stashed.reference_urls ?? [],
+    },
+  });
+}

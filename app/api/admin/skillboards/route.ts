@@ -22,22 +22,12 @@ import { ZodError } from "zod";
 
 import { requireSkillboardAccessApi } from "@/lib/auth/admin";
 import { vetBrief } from "@/lib/engines/assessment/skillboards/brief-validator";
-import { runStructureAuthoring } from "@/lib/engines/assessment/skillboards/claude-author";
-
-/**
- * Extend serverless function timeout. The synchronous Opus structure
- * pass usually completes in 5-30s but can run to 60s under load or
- * with a complex brief. Netlify's default is ~30s, which caused every
- * production skillboard creation to die at exactly 30000ms before the
- * route's own catch block could fire (so the half-baked-row cleanup
- * never ran either, and the user just saw a generic 502).
- *
- * 90s gives comfortable headroom while staying inside the Netlify
- * non-background limit. If we ever exceed this, switch to enqueuing
- * the structure pass as a row in skillboard_authoring_jobs and let
- * the cron worker pick it up async.
- */
-export const maxDuration = 90;
+// Note: structure-authoring is now ASYNC via the cron worker
+// (see POST handler). We deliberately do NOT export maxDuration
+// because the route should be fast (only DB inserts) and never
+// invokes Opus directly. If you ever bring synchronous Opus back here,
+// remember Netlify's plan-tier function timeout (~30s on standard
+// plans) was the reason we moved to the async pattern.
 import {
   createSkillboard,
   getSkillboardBySpecialisation,
@@ -164,21 +154,34 @@ export async function POST(req: Request): Promise<NextResponse> {
     claudeAuthoringBrief: claudeInput.description,
   });
 
-  // Synchronous structure pass — kicks off task_cells jobs in the queue.
+  // Enqueue the structure pass for the cron worker to run async.
+  //
+  // Netlify's serverless function timeout (~30s) was killing the
+  // synchronous Opus structure call before it could finish. We now
+  // insert the skillboard row, drop a `structure` job into the queue,
+  // and return 201 immediately. The cron worker (firing every 5 min
+  // via netlify.toml schedule) claims the job, runs the structure
+  // pass with no timeout, and the per-task task_cells jobs fan out
+  // exactly the same as before. The skillboard detail page's polling
+  // loop renders "Authoring in progress" as the cells fill in.
+  //
+  // Reference URLs are stashed in the job's `result` jsonb at enqueue
+  // time (semantically the field is for OUTPUT, but it's also the
+  // only jsonb on the table — saves a migration for tonight).
   try {
-    const result = await runStructureAuthoring({
+    const { skillboardAuthoringJobs } = await import("@/lib/db/schema");
+    const { db: dbForJob } = await import("@/lib/db/client");
+    await dbForJob.insert(skillboardAuthoringJobs).values({
       skillboardId: board.id,
-      args: {
-        specialisation: claudeInput.specialisation,
-        brief: claudeInput.description,
-        referenceUrls: claudeInput.reference_urls ?? [],
-      },
+      jobType: "structure",
+      result: { reference_urls: claudeInput.reference_urls ?? [] } as unknown,
     });
     return NextResponse.json(
       {
         skillboard_id: board.id,
-        tasks_enqueued: result.tasksEnqueued,
-        retried: result.retried,
+        status: "structure_authoring_pending",
+        message:
+          "Skillboard created. Structure authoring will start within ~1 minute and complete in a few minutes — refresh the detail page to watch progress.",
       },
       { status: 201 },
     );
