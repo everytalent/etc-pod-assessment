@@ -30,7 +30,7 @@
  *     filter — no special-casing here.
  */
 
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { db } from "@/lib/db/client";
@@ -64,9 +64,41 @@ export async function POST(req: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  // Find the oldest pending (non-paused) job across all skillboards.
-  // We claim ONE board per tick (the one with the oldest pending job)
-  // and call processNextAuthoringJob, which handles its own row-locking.
+  // STEP 1 — global stuck-job rescue across ALL skillboards.
+  //
+  // The per-board rescue inside processNextAuthoringJob only fires when
+  // we have a pending row to claim for that board. If a board's only
+  // jobs are all stuck in_progress (function killed mid-Opus by the
+  // Netlify timeout), the per-board rescue never runs and the board
+  // is dead-locked. This global pass at the top of the cron tick
+  // resets any in_progress row older than 5 minutes back to pending,
+  // regardless of board.
+  const STUCK_JOB_TIMEOUT_MS = 5 * 60 * 1000;
+  const cutoff = new Date(Date.now() - STUCK_JOB_TIMEOUT_MS);
+  try {
+    await db
+      .update(skillboardAuthoringJobs)
+      .set({
+        status: "pending",
+        claimedAt: null,
+      })
+      .where(
+        and(
+          eq(skillboardAuthoringJobs.status, "in_progress"),
+          sql`${skillboardAuthoringJobs.claimedAt} < ${cutoff}`,
+        ),
+      );
+  } catch (err) {
+    console.warn(
+      "[cron] global stuck-job rescue errored:",
+      err instanceof Error ? err.message : "unknown",
+    );
+  }
+
+  // STEP 2 — find the oldest pending (non-paused) job across all
+  // skillboards. We claim ONE board per tick (the one with the
+  // oldest pending job) and call processNextAuthoringJob, which
+  // handles its own row-locking.
   const results: Array<{
     skillboardId: string;
     outcome: string;
