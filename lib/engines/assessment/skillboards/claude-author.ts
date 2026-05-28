@@ -326,6 +326,12 @@ export async function processNextAuthoringJob(
         claimed.skillboardId,
         claimed.result,
       );
+    } else if (claimed.jobType === "bank_seed") {
+      await processBankSeedJob(
+        claimed.id,
+        claimed.skillboardId,
+        claimed.result,
+      );
     } else {
       throw new Error(`unsupported job_type: ${claimed.jobType}`);
     }
@@ -716,4 +722,139 @@ async function processStructureJob(
       referenceUrls: stashed.reference_urls ?? [],
     },
   });
+}
+
+/* ---------- Worker: bank-seed job ---------- */
+
+/**
+ * Async bank-seed job handler. Used by the superadmin test-seed button
+ * so that Opus can run beyond Netlify's 30s function timeout.
+ *
+ * Payload (stashed in job.result at enqueue time):
+ *   { specialisation: string, band: SeniorityBand, level: PerformanceLevel,
+ *     task_id: string, questions_per_cell?: number, auto_approve?: boolean }
+ *
+ * Steps:
+ *   1. Call seedQuestionsForCell — generates N questions via Opus
+ *   2. If auto_approve, merge every pending proposal that appeared
+ *      since this job started into the Validation Bank assessment
+ */
+async function processBankSeedJob(
+  jobId: string,
+  skillboardId: string,
+  resultPayload: unknown,
+): Promise<void> {
+  const args = (resultPayload ?? {}) as {
+    specialisation?: string;
+    band?: SeniorityBand;
+    level?: PerformanceLevel;
+    task_id?: string;
+    questions_per_cell?: number;
+    auto_approve?: boolean;
+  };
+  if (!args.specialisation || !args.band || !args.level || !args.task_id) {
+    throw new Error(
+      `bank_seed job ${jobId}: missing required fields in payload`,
+    );
+  }
+
+  const seedStart = new Date();
+
+  // Lazy-import to avoid a circular dep — opus-seed depends on this
+  // file's seed helpers in some branches.
+  const { seedQuestionsForCell } = await import(
+    "@/lib/engines/assessment/proposals/opus-seed"
+  );
+  await seedQuestionsForCell({
+    specialisation: args.specialisation,
+    band: args.band,
+    level: args.level,
+    taskId: args.task_id,
+    questionsPerCell: args.questions_per_cell ?? 3,
+  });
+
+  if (args.auto_approve === false) return;
+
+  // Auto-approve every proposal that landed during this job.
+  const { questionBankProposals, questions: questionsTable } = await import(
+    "@/lib/db/schema"
+  );
+  const { getOrCreateValidationBank } = await import(
+    "@/lib/engines/assessment/proposals/validation-bank"
+  );
+
+  const fresh = await db
+    .select()
+    .from(questionBankProposals)
+    .where(
+      and(
+        eq(questionBankProposals.specialisation, args.specialisation),
+        eq(questionBankProposals.status, "pending"),
+        sql`${questionBankProposals.proposedAt} > ${seedStart}`,
+      ),
+    );
+
+  for (const p of fresh) {
+    if (p.action !== "add" && p.action !== "add_below_standard" && p.action !== "add_band_extension") {
+      continue;
+    }
+    const q = p.payload as {
+      question_text: string;
+      question_type: string;
+      options?: Array<{ id: string; label: string }>;
+      correct_answer?: string[];
+      scoring_rubric: string;
+      difficulty_score: number;
+      competency_area?: string;
+      weight?: number;
+      interactive_config?: unknown;
+    };
+    const bank = await getOrCreateValidationBank(p.specialisation);
+    const orderRows = await db
+      .select({ orderIndex: questionsTable.orderIndex })
+      .from(questionsTable)
+      .where(eq(questionsTable.assessmentId, bank.id));
+    const nextOrder =
+      orderRows.length === 0
+        ? 0
+        : Math.max(...orderRows.map((r) => r.orderIndex)) + 1;
+
+    type DbQuestionType =
+      | "mcq" | "true_false" | "open" | "voice" | "file"
+      | "formula" | "hotspot" | "sequence" | "slider"
+      | "matching" | "scenario";
+
+    await db.insert(questionsTable).values({
+      assessmentId: bank.id,
+      orderIndex: nextOrder,
+      type: q.question_type as DbQuestionType,
+      questionText: q.question_text,
+      options: (q.options ?? []),
+      correctAnswer: q.correct_answer ?? [],
+      scoringRubric: q.scoring_rubric,
+      specialisation: p.specialisation,
+      band: p.band,
+      level: p.level,
+      taskId: p.taskId,
+      difficultyScore: q.difficulty_score,
+      competencyArea: q.competency_area ?? null,
+      weight: q.weight ?? 100,
+      interactiveConfig: q.interactive_config ?? null,
+      points: 1,
+      negativePoints: 0,
+      timerEnabled: false,
+      required: true,
+    });
+
+    await db
+      .update(questionBankProposals)
+      .set({
+        status: "approved",
+        reviewedBy: null,
+        reviewedAt: new Date(),
+        reviewNotes: "auto-approved via test-seed (background worker)",
+      })
+      .where(eq(questionBankProposals.id, p.id));
+  }
+  void skillboardId; // skillboardId not used directly in this branch
 }

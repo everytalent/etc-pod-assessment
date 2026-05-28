@@ -325,6 +325,7 @@ export const authoringJobTypeEnum = pgEnum("authoring_job_type", [
   "structure",
   "task_cells",
   "cell_regeneration",
+  "bank_seed",
 ]);
 
 /**
