@@ -339,6 +339,7 @@ export function SkillboardDetailView({
         board={board}
         authoringStatus={authoringStatus}
         canApprove={canApprove}
+        canDelete={canDelete}
         onActivate={onActivate}
         onBulkApproveAll={() => onBulkApprove("all")}
         activationError={activationError}
@@ -439,6 +440,7 @@ function ActivationBanner({
   board,
   authoringStatus,
   canApprove,
+  canDelete,
   onActivate,
   onBulkApproveAll,
   activationError,
@@ -446,6 +448,7 @@ function ActivationBanner({
   board: SkillboardDetail;
   authoringStatus: AuthoringStatus | null;
   canApprove: boolean;
+  canDelete: boolean;
   onActivate: () => void;
   onBulkApproveAll: () => void;
   activationError: string | null;
@@ -479,12 +482,17 @@ function ActivationBanner({
   if (board.activated_at) {
     return (
       <div className="rounded-2xl border border-green-300 bg-green-50 p-4">
-        <p className="text-sm font-semibold text-green-900">
-          ✓ Active since {new Date(board.activated_at).toLocaleDateString()}
-        </p>
-        <p className="mt-1 text-xs text-green-900">
-          Validation Engine is pulling questions anchored to this board.
-        </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold text-green-900">
+              ✓ Active since {new Date(board.activated_at).toLocaleDateString()}
+            </p>
+            <p className="mt-1 text-xs text-green-900">
+              Validation Engine is pulling questions anchored to this board.
+            </p>
+          </div>
+          {canDelete && <TestSeedButton boardId={board.id} />}
+        </div>
       </div>
     );
   }
@@ -1477,6 +1485,89 @@ function NameDescriptionListEditor({
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ---------- Test-seed button (superadmin only, activated boards) ---------- */
+
+/**
+ * One-click "seed + auto-approve" for the validation bank.
+ *
+ * Calls /api/admin/skillboards/[id]/test-seed which:
+ *   - Seeds 1 cell of Opus questions (~$0.50 / call)
+ *   - Auto-approves the resulting proposals into the bank
+ *
+ * After clicking, you should be able to mint a real validation session
+ * via POST /api/internal/sessions. Used for the end-to-end demo path.
+ */
+function TestSeedButton({ boardId }: { boardId: string }) {
+  const [state, setState] = useState<
+    | { kind: "idle" }
+    | { kind: "running" }
+    | { kind: "done"; approved: number; enqueued: number }
+    | { kind: "error"; message: string }
+  >({ kind: "idle" });
+
+  async function handleClick() {
+    if (state.kind === "running") return;
+    if (
+      !confirm(
+        "Run Opus seed for 1 cell and auto-approve every generated question into the bank?\n\nCost: ~$0.50. Used for end-to-end testing only — do NOT use as the main seeding path in production.",
+      )
+    ) {
+      return;
+    }
+    setState({ kind: "running" });
+    const res = await fetch(`/api/admin/skillboards/${boardId}/test-seed`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ max_cells: 1 }),
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as {
+        message?: string;
+        error?: string;
+      };
+      setState({
+        kind: "error",
+        message: data.message ?? data.error ?? `Failed (${res.status}).`,
+      });
+      return;
+    }
+    const data = (await res.json()) as {
+      proposals_enqueued: number;
+      proposals_auto_approved: number;
+    };
+    setState({
+      kind: "done",
+      approved: data.proposals_auto_approved,
+      enqueued: data.proposals_enqueued,
+    });
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={state.kind === "running"}
+        className="rounded-md border border-green-300 bg-white px-3 py-1.5 text-xs font-medium text-green-900 hover:bg-green-100 disabled:opacity-50"
+      >
+        {state.kind === "running"
+          ? "Seeding…"
+          : state.kind === "done"
+            ? "✓ Seeded"
+            : "🎯 Seed test bank (1 cell)"}
+      </button>
+      {state.kind === "done" && (
+        <p className="text-[0.65rem] text-green-900">
+          {state.approved} approved · {state.enqueued} enqueued
+        </p>
+      )}
+      {state.kind === "error" && (
+        <p className="text-[0.65rem] text-destructive">{state.message}</p>
+      )}
     </div>
   );
 }
