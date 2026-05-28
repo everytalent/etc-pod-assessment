@@ -23,6 +23,21 @@ import { ZodError } from "zod";
 import { requireSkillboardAccessApi } from "@/lib/auth/admin";
 import { vetBrief } from "@/lib/engines/assessment/skillboards/brief-validator";
 import { runStructureAuthoring } from "@/lib/engines/assessment/skillboards/claude-author";
+
+/**
+ * Extend serverless function timeout. The synchronous Opus structure
+ * pass usually completes in 5-30s but can run to 60s under load or
+ * with a complex brief. Netlify's default is ~30s, which caused every
+ * production skillboard creation to die at exactly 30000ms before the
+ * route's own catch block could fire (so the half-baked-row cleanup
+ * never ran either, and the user just saw a generic 502).
+ *
+ * 90s gives comfortable headroom while staying inside the Netlify
+ * non-background limit. If we ever exceed this, switch to enqueuing
+ * the structure pass as a row in skillboard_authoring_jobs and let
+ * the cron worker pick it up async.
+ */
+export const maxDuration = 90;
 import {
   createSkillboard,
   getSkillboardBySpecialisation,
