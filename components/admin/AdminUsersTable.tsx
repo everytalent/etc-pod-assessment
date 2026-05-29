@@ -210,6 +210,12 @@ export function AdminUsersTable({
               <tr>
                 <th className="px-3 py-3 pl-5 font-medium">Email</th>
                 <th className="px-3 py-3 font-medium">Role</th>
+                <th
+                  className="px-3 py-3 font-medium"
+                  title="Learning Expert — can approve, reject, edit, regenerate skillboard cells. Independent of role; superadmin grants per user."
+                >
+                  Learning Expert
+                </th>
                 <th className="px-3 py-3 font-medium">Added</th>
                 <th className="px-3 py-3 pr-5 text-right font-medium">Actions</th>
               </tr>
@@ -234,6 +240,15 @@ export function AdminUsersTable({
                     >
                       {r.role}
                     </span>
+                  </td>
+                  <td className="px-3 py-3 align-middle">
+                    <LearningExpertToggle
+                      userId={r.id}
+                      currentValue={r.canApproveSkillboards}
+                      currentAdminRole={currentAdminRole}
+                      targetRole={r.role}
+                      isSelf={r.id === currentAdminId}
+                    />
                   </td>
                   <td className="px-3 py-3 align-middle text-muted-foreground">
                     {new Date(r.createdAt).toLocaleDateString(undefined, {
@@ -269,6 +284,103 @@ export function AdminUsersTable({
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ---------- Learning Expert per-user toggle ---------- */
+
+/**
+ * Per-user can_approve_skillboards flag. Independent of role. Controls
+ * who can see the approve / reject / edit / regenerate buttons on
+ * skillboard cells (and trigger activation).
+ *
+ * Visibility rules (mirror the PATCH route):
+ *   - Admin tier can toggle for editor + assessor only.
+ *   - Superadmin can toggle for anyone except their own row (so they
+ *     don't accidentally remove approve-cell access mid-flow).
+ */
+function LearningExpertToggle({
+  userId,
+  currentValue,
+  currentAdminRole,
+  targetRole,
+  isSelf,
+}: {
+  userId: string;
+  currentValue: boolean;
+  currentAdminRole: AdminUser["role"];
+  targetRole: AdminUser["role"];
+  isSelf: boolean;
+}) {
+  const [value, setValue] = useState<boolean>(currentValue);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const canToggle =
+    !busy &&
+    (currentAdminRole === "superadmin"
+      ? !isSelf
+      : currentAdminRole === "admin" &&
+        (targetRole === "editor" || targetRole === "assessor"));
+
+  async function flip() {
+    if (!canToggle) return;
+    const next = !value;
+    setBusy(true);
+    setErr(null);
+    const res = await fetch(`/api/admin/admin-users/${userId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ can_approve_skillboards: next }),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as {
+        message?: string;
+      };
+      setErr(data.message ?? "Failed.");
+      return;
+    }
+    setValue(next);
+  }
+
+  if (!canToggle && !err) {
+    return (
+      <span
+        className={cn(
+          "inline-flex items-center gap-1 text-[0.7rem]",
+          value ? "text-green-700" : "text-muted-foreground",
+        )}
+        title={
+          isSelf
+            ? "Use a different superadmin account to toggle Learning Expert on yourself."
+            : "You don't have permission to toggle Learning Expert on this user."
+        }
+      >
+        {value ? "✓ on" : "—"}
+      </span>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-start gap-0.5">
+      <button
+        type="button"
+        onClick={flip}
+        disabled={busy}
+        className={cn(
+          "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[0.7rem] font-medium transition-colors",
+          value
+            ? "border-green-300 bg-green-50 text-green-800 hover:bg-green-100"
+            : "border-border bg-background text-muted-foreground hover:border-etc-marigold",
+          busy && "opacity-60",
+        )}
+      >
+        <span aria-hidden>{value ? "✓" : "○"}</span>
+        {value ? "Learning Expert" : "Grant"}
+      </button>
+      {err && <span className="text-[0.65rem] text-destructive">{err}</span>}
     </div>
   );
 }

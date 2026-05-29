@@ -783,6 +783,7 @@ async function processBankSeedJob(
     "@/lib/engines/assessment/proposals/validation-bank"
   );
 
+  const { gt } = await import("drizzle-orm");
   const fresh = await db
     .select()
     .from(questionBankProposals)
@@ -790,7 +791,7 @@ async function processBankSeedJob(
       and(
         eq(questionBankProposals.specialisation, args.specialisation),
         eq(questionBankProposals.status, "pending"),
-        sql`${questionBankProposals.proposedAt} > ${seedStart}`,
+        gt(questionBankProposals.proposedAt, seedStart),
       ),
     );
 
