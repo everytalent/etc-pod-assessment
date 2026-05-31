@@ -17,6 +17,12 @@ const eslintConfig = defineConfig([
     // not ours to lint.
     ".netlify/**",
     "deno.lock",
+    // Node-only helper scripts (run via tsx, not part of the Next.js
+    // app). They use Node globals like __dirname that the Next ESLint
+    // config doesn't expect.
+    "scripts/**",
+    // SQL + Drizzle migrations — not JS/TS.
+    "drizzle/**",
   ]),
 ]);
 
