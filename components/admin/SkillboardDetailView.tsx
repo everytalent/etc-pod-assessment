@@ -15,6 +15,7 @@
  * keep the visible counts honest without leaning on Zustand.
  */
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { SkillboardDetail } from "@/lib/engines/assessment/skillboards/types";
@@ -285,12 +286,12 @@ export function SkillboardDetailView({
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">
       <div className="mb-4">
-        <a
+        <Link
           href="/admin/skillboards"
           className="text-xs text-muted-foreground hover:underline"
         >
           ← back to skillboards
-        </a>
+        </Link>
       </div>
 
       <header className="mb-6 flex items-start justify-between gap-4">

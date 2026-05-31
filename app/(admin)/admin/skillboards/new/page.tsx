@@ -6,6 +6,7 @@
  * brief-vet feedback.
  */
 
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { getAdminSession } from "@/lib/auth/admin";
@@ -33,12 +34,12 @@ export default async function NewSkillboardPage() {
   return (
     <main className="mx-auto max-w-3xl px-6 py-10">
       <div className="mb-6">
-        <a
+        <Link
           href="/admin/skillboards"
           className="text-xs text-muted-foreground hover:underline"
         >
           ← back to skillboards
-        </a>
+        </Link>
         <h1 className="mt-2 text-2xl font-bold tracking-tight">
           New skillboard
         </h1>

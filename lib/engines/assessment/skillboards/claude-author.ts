@@ -190,7 +190,7 @@ export async function runStructureAuthoring(args: {
     // Retry once with explicit feedback. Most common cause: task count
     // off by 1-2. Re-call with the assistant's first reply preserved so
     // Opus can self-correct rather than redo from scratch.
-    const feedbackMessage = buildRetryFeedback(firstErr, firstResult.text);
+    const feedbackMessage = buildRetryFeedback(firstErr);
     const secondResult = await withOpusBudget("skillboard_authoring", () =>
       callOpusRaw({
         system,
@@ -252,7 +252,7 @@ export async function runStructureAuthoring(args: {
  * failed validation. Includes the specific reason so Opus can target
  * the fix rather than re-rolling the entire output.
  */
-function buildRetryFeedback(err: unknown, _firstReply: string): string {
+function buildRetryFeedback(err: unknown): string {
   const message = err instanceof Error ? err.message : "unknown parse error";
   return `Your previous response failed validation:
 

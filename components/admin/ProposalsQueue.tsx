@@ -44,6 +44,9 @@ export function ProposalsQueue() {
   }, [status, specialisation, band, level]);
 
   useEffect(() => {
+    // setLoading inside load() is intentional — proposals page lifts
+    // its loading flag synchronously on every filter change.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
 

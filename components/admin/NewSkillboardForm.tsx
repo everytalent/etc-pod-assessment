@@ -53,8 +53,11 @@ export function NewSkillboardForm() {
 
   // Re-suggest as the user types. If they haven't manually overridden
   // (roleFamily is still aligned with previous suggestion), update.
+  // Intentionally synchronous: this is a debounce-substitute and the
+  // suggestion needs to land before the user picks a role.
   useEffect(() => {
     const next = suggestRoleFamily({ specialisation, brief: description });
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSuggestion(next);
     if (
       next.suggested &&
@@ -62,8 +65,7 @@ export function NewSkillboardForm() {
     ) {
       setRoleFamily(next.suggested);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [specialisation, description]);
+  }, [specialisation, description, roleFamily, suggestion?.suggested]);
 
   const canSubmit = useMemo(
     () =>

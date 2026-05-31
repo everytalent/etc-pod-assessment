@@ -79,10 +79,13 @@ export default async function TakeValidationPage(props: {
     );
   }
 
-  // Refuse if expired
+  // Refuse if expired. Date.now is fine in a server component — the
+  // page is re-rendered on each request, not memoised across them.
+  // eslint-disable-next-line react-hooks/purity
+  const nowMs = Date.now();
   if (
     meta.session_expires_at &&
-    new Date(meta.session_expires_at).getTime() < Date.now()
+    new Date(meta.session_expires_at).getTime() < nowMs
   ) {
     return <ExpiredScreen />;
   }
@@ -104,7 +107,7 @@ export default async function TakeValidationPage(props: {
       </h1>
 
       <p className="mt-4 text-sm text-muted-foreground">
-        You're about to take a short adaptive assessment for{" "}
+        You&rsquo;re about to take a short adaptive assessment for{" "}
         <span className="font-semibold text-foreground">
           {meta.specialisation ?? row.assessmentTitle}
         </span>
@@ -126,11 +129,11 @@ export default async function TakeValidationPage(props: {
           </li>
           <li>
             <span aria-hidden>•</span> If your network drops, you can come
-            back to this same page and resume where you left off.
+            back to this same page and resume where you left off.{" "}
           </li>
           <li>
             <span aria-hidden>•</span> The result lands on your talent
-            profile page when you're done.
+            profile page when you&rsquo;re done.
           </li>
         </ul>
       </div>
@@ -154,7 +157,7 @@ function FinishedScreen({
 }) {
   return (
     <main className="mx-auto max-w-xl px-6 py-12">
-      <h1 className="text-2xl font-bold">You've already completed this</h1>
+      <h1 className="text-2xl font-bold">You&rsquo;ve already completed this</h1>
       <p className="mt-3 text-sm text-muted-foreground">
         Your {spec} validation is on file. Your talent profile will show the
         full breakdown.
@@ -178,7 +181,7 @@ function ExpiredScreen() {
       <p className="mt-3 text-sm text-muted-foreground">
         Your validation invite is past its expiry date. Request a fresh
         invite from the platform — your previous answers are not lost,
-        you'll just need a new link.
+        you&rsquo;ll just need a new link.
       </p>
     </main>
   );

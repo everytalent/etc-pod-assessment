@@ -36,7 +36,9 @@ export function HotspotAnswerInput({ question, onSubmit, disabled = false }: Pro
     return result.success ? result.data : null;
   }, [question.interactiveConfig]);
 
-  const mountedAtRef = useRef<number>(Date.now());
+  // Initialise to null; the effect below stamps it on mount. Avoids
+  // calling Date.now() during render (react-hooks/purity).
+  const mountedAtRef = useRef<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [click, setClick] = useState<{ x: number; y: number } | null>(null);
   const [submitted, setSubmitted] = useState(false);
@@ -75,7 +77,7 @@ export function HotspotAnswerInput({ question, onSubmit, disabled = false }: Pro
       structuredAnswer: {
         click_x: click.x,
         click_y: click.y,
-        time_to_answer_ms: Date.now() - mountedAtRef.current,
+        time_to_answer_ms: mountedAtRef.current ? Date.now() - mountedAtRef.current : 0,
       },
     });
   }
@@ -98,6 +100,11 @@ export function HotspotAnswerInput({ question, onSubmit, disabled = false }: Pro
         style={{ aspectRatio: "16/10" }}
       >
         {!imgError ? (
+          // next/image needs explicit width/height or fill mode + a
+          // configured remotePatterns whitelist. Hotspot images come
+          // from arbitrary upload URLs at runtime, so plain <img> is
+          // simpler. Revisit if LCP becomes a real issue.
+          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={parsed.image_path}
             alt="Click the relevant region"

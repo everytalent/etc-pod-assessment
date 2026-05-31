@@ -13,7 +13,7 @@
  *     caller decides whether to advance state or end the spec.
  */
 
-import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import {
