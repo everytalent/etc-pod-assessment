@@ -24,6 +24,8 @@ import type { CandidateQuestion } from "@/lib/assessment/validators";
 import type { AnswerPayload } from "@/lib/state/candidate-session";
 import { cn } from "@/lib/utils";
 
+import { InvalidConfigTextFallback } from "./InvalidConfigTextFallback";
+
 const scenarioConfigSchema = z.object({
   steps: z
     .array(
@@ -57,10 +59,15 @@ export function ScenarioAnswerInput({ question, onSubmit, disabled = false }: Pr
   const [submitted, setSubmitted] = useState(false);
 
   if (!parsed) {
+    // Config from Opus didn't match the scenario schema. Fall back to
+    // a plain textarea so the candidate can still answer in prose
+    // rather than being stuck on a placeholder.
     return (
-      <div className="rounded-2xl border border-destructive bg-destructive/10 p-4 text-xs text-destructive">
-        This scenario question has an invalid configuration. Skip to continue.
-      </div>
+      <InvalidConfigTextFallback
+        onSubmit={onSubmit}
+        disabled={disabled}
+        hint="Type your decision and brief reasoning."
+      />
     );
   }
 

@@ -13,7 +13,7 @@
  *     caller decides whether to advance state or end the spec.
  */
 
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, eq, notInArray, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import {
@@ -81,8 +81,12 @@ async function pickFromCell(
     )`,
   ];
   if (excludeIds.length > 0) {
-    conditions.push(ne(questions.id, sql.raw("'__none__'"))); // safety
-    conditions.push(sql`${questions.id} NOT IN ${excludeIds}`);
+    // Use Drizzle's notInArray helper so postgres-js binds each UUID as
+    // a separate parameter. The earlier `ne(questions.id, '__none__')`
+    // safety line threw `invalid input syntax for type uuid` because
+    // it asked Postgres to compare a uuid column to the literal string
+    // '__none__'.
+    conditions.push(notInArray(questions.id, excludeIds));
   }
 
   const rows = await db
