@@ -136,6 +136,28 @@ export const AnswerInput = forwardRef<AnswerInputHandle, Props>(
       );
     }
 
+    // Voice / file / formula fall back to the open-ended input.
+    // OpenEndedAnswerInput supports text and voice already, so voice
+    // questions render naturally. Formula and file accept typed text
+    // as the candidate's answer — not the ideal UX (a real spreadsheet
+    // formula editor or a file upload would be richer), but it
+    // unblocks the candidate flow and the rubric still grades the
+    // written explanation.
+    if (
+      question.type === "voice" ||
+      question.type === "file" ||
+      question.type === "formula"
+    ) {
+      return (
+        <OpenEndedAnswerInput
+          ref={openRef}
+          question={question}
+          onSubmit={onSubmit}
+          disabled={disabled}
+        />
+      );
+    }
+
     return (
       <div className="rounded-xl border border-dashed bg-card p-4 text-xs text-muted-foreground">
         This question type isn&rsquo;t available yet. Skip to continue.
