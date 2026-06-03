@@ -62,9 +62,23 @@ export async function POST(req: Request) {
   if (!row) {
     return NextResponse.json({ error: "question_not_found" }, { status: 404 });
   }
-  if (row.questionType !== "open") {
+  // Voice upload is valid for the legacy 'open' type and the Phase 2
+  // 'voice' type. file/formula questions also dispatch through the
+  // OpenEndedAnswerInput on the candidate side (per AnswerInput.tsx
+  // fallback) so we allow them too — candidates who pick the voice
+  // branch on those types get the same upload path.
+  if (
+    row.questionType !== "open" &&
+    row.questionType !== "voice" &&
+    row.questionType !== "file" &&
+    row.questionType !== "formula"
+  ) {
     return NextResponse.json(
-      { error: "wrong_question_type", message: "Voice upload only valid on open-ended questions." },
+      {
+        error: "wrong_question_type",
+        message:
+          "Voice upload only valid on open-ended / voice / file / formula questions.",
+      },
       { status: 400 },
     );
   }
