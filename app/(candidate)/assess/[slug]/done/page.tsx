@@ -7,15 +7,7 @@
  * never reveal the score on this page (the threshold message is enough).
  */
 
-import { eq } from "drizzle-orm";
-
-import { db } from "@/lib/db/client";
-import { assessments, responses } from "@/lib/db/schema";
 import { getAssessmentBySlug } from "@/lib/assessment/queries";
-import {
-  clearCandidateSession,
-  getCandidateSession,
-} from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -27,24 +19,11 @@ export default async function AssessDonePage({
   const { slug } = await params;
   const assessment = await getAssessmentBySlug(slug);
 
-  // Best-effort cookie cleanup. If the session row matches this assessment
-  // and is finalised, clear so a hard-refresh of /assess/[slug] doesn't
-  // bounce the candidate back into the (now-submitted) session.
-  const responseId = await getCandidateSession();
-  if (responseId && assessment) {
-    const [row] = await db
-      .select({
-        status: responses.status,
-        slug: assessments.slug,
-      })
-      .from(responses)
-      .innerJoin(assessments, eq(assessments.id, responses.assessmentId))
-      .where(eq(responses.id, responseId))
-      .limit(1);
-    if (row && row.slug === slug && row.status !== "in_progress") {
-      await clearCandidateSession();
-    }
-  }
+  // Cookie cleanup now happens inside POST /api/sessions/finalize
+  // (Next.js 16 forbids cookie mutation in Server Components). If a
+  // candidate hard-refreshes /assess/[slug] with a stale cookie pointing
+  // at a finalised response, the session page already redirects to
+  // /done on its own status check — no second cleanup needed here.
 
   const outroText =
     assessment?.outroText ||
