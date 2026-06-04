@@ -7,17 +7,11 @@
  * from responses row keyed by session cookie" — done in one server pass).
  */
 
-import { createHash } from "node:crypto";
-
 import { eq } from "drizzle-orm";
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { ChatShell } from "@/components/candidate/ChatShell";
-import {
-  finalizeResponse,
-  getNextQuestion,
-} from "@/lib/assessment/engine";
+import { getNextQuestion } from "@/lib/assessment/engine";
 import {
   getAnsweredHistory,
   getCandidateQuestion,
@@ -81,16 +75,14 @@ export default async function AssessSessionPage({
 
   const next = await getNextQuestion(responseId);
   if (next.kind === "end") {
-    // Snapshot the current request IP at finalize so we can compare
-    // against start_ip_hash in the admin drill-in.
-    const headerStore = await headers();
-    const ip =
-      (headerStore.get("x-forwarded-for") ?? "").split(",")[0]?.trim() ?? "";
-    const submitIpHash = ip
-      ? createHash("sha256").update(ip).digest("hex").slice(0, 32)
-      : undefined;
-    await finalizeResponse(responseId, submitIpHash);
-    redirect(`/assess/${slug}/done`);
+    // Server Components can't mutate cookies in Next.js 16, and the
+    // finalize chain ends up needing to clear the candidate session
+    // cookie + may trigger synthesis. Redirect to the Route Handler
+    // which legally can do both, then it sends the candidate to /done.
+    //
+    // The handler is idempotent: if it's already been called for this
+    // response, it returns ok and the candidate still lands on /done.
+    redirect(`/api/sessions/finalize`);
   }
 
   const [question, score, totalRows, history] = await Promise.all([
