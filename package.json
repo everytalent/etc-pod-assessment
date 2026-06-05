@@ -13,7 +13,8 @@
     "db:generate": "dotenv -e .env.local -- drizzle-kit generate",
     "db:push": "dotenv -e .env.local -- drizzle-kit push",
     "db:studio": "dotenv -e .env.local -- drizzle-kit studio",
-    "db:seed": "dotenv -e .env.local -- tsx lib/db/seed.ts"
+    "db:seed": "dotenv -e .env.local -- tsx lib/db/seed.ts",
+    "worker": "tsx scripts/run-worker.mts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
