@@ -244,25 +244,56 @@ export function VettedProfilePanel({
           </p>
         ) : (
           <div className="space-y-2">
-            {overrides.map((o) => (
-              <div
-                key={o.id}
-                className="rounded-xl border border-border bg-card p-3 text-xs"
-              >
-                <div className="flex justify-between gap-3">
-                  <span className="font-medium">{o.field}</span>
-                  <span className="text-muted-foreground">
-                    {o.overriddenAt.toLocaleString()}
-                  </span>
+            {[...overrides]
+              .sort(
+                (a, b) =>
+                  new Date(b.overriddenAt).getTime() -
+                  new Date(a.overriddenAt).getTime(),
+              )
+              .map((o, idx) => (
+                <div
+                  key={o.id}
+                  className="rounded-xl border border-border bg-card p-3 text-xs"
+                >
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <div className="flex items-baseline gap-2">
+                      <span className="font-mono text-[0.65rem] uppercase tracking-wider text-muted-foreground">
+                        v{overrides.length - idx}
+                      </span>
+                      <span className="font-medium">{o.field}</span>
+                    </div>
+                    <span className="text-muted-foreground tabular-nums">
+                      {o.overriddenAt.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2">
+                    <div className="rounded bg-red-50 p-2 text-red-900">
+                      <p className="mb-1 text-[0.6rem] uppercase tracking-wider opacity-70">
+                        Before
+                      </p>
+                      <pre className="overflow-x-auto whitespace-pre-wrap text-[0.7rem]">
+                        {JSON.stringify(o.oldValue, null, 0)}
+                      </pre>
+                    </div>
+                    <div className="rounded bg-green-50 p-2 text-green-900">
+                      <p className="mb-1 text-[0.6rem] uppercase tracking-wider opacity-70">
+                        After
+                      </p>
+                      <pre className="overflow-x-auto whitespace-pre-wrap text-[0.7rem]">
+                        {JSON.stringify(o.newValue, null, 0)}
+                      </pre>
+                    </div>
+                  </div>
+                  {o.reasoning && (
+                    <p className="mt-2 rounded bg-muted/40 p-2 italic text-foreground">
+                      {o.reasoning}
+                    </p>
+                  )}
+                  <p className="mt-2 text-[0.65rem] text-muted-foreground">
+                    by admin {o.overriddenBy.slice(0, 8)}
+                  </p>
                 </div>
-                <div className="mt-1 text-muted-foreground">
-                  {JSON.stringify(o.oldValue)} → {JSON.stringify(o.newValue)}
-                </div>
-                {o.reasoning && (
-                  <p className="mt-2 italic text-foreground">{o.reasoning}</p>
-                )}
-              </div>
-            ))}
+              ))}
           </div>
         )}
       </section>

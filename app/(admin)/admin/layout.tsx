@@ -77,6 +77,22 @@ export default async function AdminLayout({
               >
                 Proposals
               </Link>
+              {(role === "admin" || role === "superadmin") && (
+                <Link
+                  href="/admin/shadow-review"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  Shadow review
+                </Link>
+              )}
+              {role === "superadmin" && (
+                <Link
+                  href="/admin/ai-spend"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  AI spend
+                </Link>
+              )}
               {CAN.viewUsersPage(role) && (
                 <Link
                   href="/admin/users"
