@@ -1490,31 +1490,42 @@ function NameDescriptionListEditor({
   );
 }
 
-/* ---------- Test-seed button (superadmin only, activated boards) ---------- */
+/* ---------- Bank-seed button (superadmin only, activated boards) ---------- */
 
 /**
- * One-click "seed + auto-approve" for the validation bank.
+ * Seed the validation bank with Opus-generated questions.
  *
- * Calls /api/admin/skillboards/[id]/test-seed which:
- *   - Seeds 1 cell of Opus questions (~$0.50 / call)
- *   - Auto-approves the resulting proposals into the bank
+ * Two modes via the inline config:
+ *   - "Stage for review" (default): jobs created, proposals land in
+ *     /admin/question-bank-proposals for human review before they hit
+ *     the candidate-facing bank
+ *   - "Auto-approve": proposals merge straight into the bank (test-only
+ *     speed path; admin still owns the consequence)
  *
- * After clicking, you should be able to mint a real validation session
- * via POST /api/internal/sessions. Used for the end-to-end demo path.
+ * Cell count + questions-per-cell are picker-controlled. Each cell is
+ * one Opus call (~$0.50). The estimate displayed before submit is
+ * conservative — actual is usually lower.
  */
 function TestSeedButton({ boardId }: { boardId: string }) {
+  const [open, setOpen] = useState(false);
+  const [maxCells, setMaxCells] = useState(5);
+  const [questionsPerCell, setQuestionsPerCell] = useState(3);
+  const [autoApprove, setAutoApprove] = useState(false);
   const [state, setState] = useState<
     | { kind: "idle" }
     | { kind: "running" }
-    | { kind: "done"; approved: number; enqueued: number }
+    | { kind: "done"; approved: number; enqueued: number; staged?: boolean }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
 
-  async function handleClick() {
+  const estimateUsd = (maxCells * 0.5).toFixed(2);
+
+  async function handleRun() {
     if (state.kind === "running") return;
+    const verb = autoApprove ? "auto-approve" : "stage for review";
     if (
       !confirm(
-        "Run Opus seed for 1 cell and auto-approve every generated question into the bank?\n\nCost: ~$0.50. Used for end-to-end testing only — do NOT use as the main seeding path in production.",
+        `Seed Opus for ${maxCells} cell(s) × ${questionsPerCell} questions and ${verb}?\n\nEstimated cost: ~$${estimateUsd}. Worker processes asynchronously — check the proposals page or refresh this page in a few minutes.`,
       )
     ) {
       return;
@@ -1523,7 +1534,11 @@ function TestSeedButton({ boardId }: { boardId: string }) {
     const res = await fetch(`/api/admin/skillboards/${boardId}/test-seed`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ max_cells: 1 }),
+      body: JSON.stringify({
+        max_cells: maxCells,
+        questions_per_cell: questionsPerCell,
+        auto_approve: autoApprove,
+      }),
     });
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as {
@@ -1537,38 +1552,123 @@ function TestSeedButton({ boardId }: { boardId: string }) {
       return;
     }
     const data = (await res.json()) as {
-      proposals_enqueued: number;
-      proposals_auto_approved: number;
+      jobs_enqueued?: number;
+      proposals_enqueued?: number;
+      proposals_auto_approved?: number;
     };
     setState({
       kind: "done",
-      approved: data.proposals_auto_approved,
-      enqueued: data.proposals_enqueued,
+      approved: data.proposals_auto_approved ?? 0,
+      enqueued: data.proposals_enqueued ?? data.jobs_enqueued ?? 0,
+      staged: !autoApprove,
     });
+    setOpen(false);
+  }
+
+  if (!open) {
+    return (
+      <div className="flex flex-col items-end gap-1">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="rounded-md border border-green-300 bg-white px-3 py-1.5 text-xs font-medium text-green-900 hover:bg-green-100"
+        >
+          🎯 Seed bank…
+        </button>
+        {state.kind === "done" && (
+          <p className="text-[0.65rem] text-green-900">
+            {state.staged
+              ? `${state.enqueued} jobs queued · review at /admin/question-bank-proposals`
+              : `${state.approved} approved, ${state.enqueued} into bank`}
+          </p>
+        )}
+        {state.kind === "error" && (
+          <p className="text-[0.65rem] text-destructive">{state.message}</p>
+        )}
+      </div>
+    );
   }
 
   return (
-    <div className="flex flex-col items-end gap-1">
-      <button
-        type="button"
-        onClick={handleClick}
-        disabled={state.kind === "running"}
-        className="rounded-md border border-green-300 bg-white px-3 py-1.5 text-xs font-medium text-green-900 hover:bg-green-100 disabled:opacity-50"
-      >
-        {state.kind === "running"
-          ? "Seeding…"
-          : state.kind === "done"
-            ? "✓ Seeded"
-            : "🎯 Seed test bank (1 cell)"}
-      </button>
-      {state.kind === "done" && (
-        <p className="text-[0.65rem] text-green-900">
-          {state.approved} approved · {state.enqueued} enqueued
-        </p>
-      )}
-      {state.kind === "error" && (
-        <p className="text-[0.65rem] text-destructive">{state.message}</p>
-      )}
+    <div className="rounded-xl border border-green-300 bg-white p-3 text-xs">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <label className="block">
+          <span className="text-[0.65rem] uppercase tracking-wider text-muted-foreground">
+            Cells
+          </span>
+          <select
+            value={maxCells}
+            onChange={(e) => setMaxCells(Number(e.target.value))}
+            className="mt-1 w-full rounded border border-input bg-background px-2 py-1"
+            aria-label="Cells to seed"
+          >
+            <option value={1}>1 (test)</option>
+            <option value={5}>5</option>
+            <option value={10}>10</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-[0.65rem] uppercase tracking-wider text-muted-foreground">
+            Qs/cell
+          </span>
+          <select
+            value={questionsPerCell}
+            onChange={(e) => setQuestionsPerCell(Number(e.target.value))}
+            className="mt-1 w-full rounded border border-input bg-background px-2 py-1"
+            aria-label="Questions per cell"
+          >
+            <option value={3}>3</option>
+            <option value={5}>5</option>
+            <option value={7}>7</option>
+            <option value={10}>10</option>
+          </select>
+        </label>
+        <label className="flex flex-col">
+          <span className="text-[0.65rem] uppercase tracking-wider text-muted-foreground">
+            Approval
+          </span>
+          <label className="mt-1.5 flex items-center gap-1">
+            <input
+              type="checkbox"
+              checked={autoApprove}
+              onChange={(e) => setAutoApprove(e.target.checked)}
+              aria-label="Auto-approve into bank"
+            />
+            <span className="text-[0.7rem]">Auto-approve</span>
+          </label>
+        </label>
+        <div className="flex flex-col justify-end">
+          <span className="text-[0.65rem] uppercase tracking-wider text-muted-foreground">
+            Est. cost
+          </span>
+          <span className="mt-1.5 text-sm font-semibold tabular-nums">
+            ~${estimateUsd}
+          </span>
+        </div>
+      </div>
+      <div className="mt-3 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="rounded-md border border-border bg-background px-3 py-1 text-[0.7rem] hover:border-etc-marigold"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleRun}
+          disabled={state.kind === "running"}
+          className="rounded-md bg-primary px-3 py-1 text-[0.7rem] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+        >
+          {state.kind === "running" ? "Queueing…" : "Run seed"}
+        </button>
+      </div>
+      <p className="mt-2 text-[0.65rem] text-muted-foreground">
+        Worker processes jobs asynchronously (Railway). Refresh the
+        proposals page to watch them land.
+      </p>
     </div>
   );
 }
