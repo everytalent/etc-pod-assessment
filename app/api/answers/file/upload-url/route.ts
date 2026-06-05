@@ -1,15 +1,18 @@
 /**
- * POST /api/answers/voice/upload-url
+ * POST /api/answers/file/upload-url
  *
- * Mints a one-shot signed upload URL the candidate's browser can PUT the
- * recorded audio to directly. Avoids streaming 3-5 MB blobs through Netlify
- * functions.
+ * Mints a signed upload URL for a file-upload question type. Avoids
+ * streaming the file through Netlify functions (size limits apply).
  *
- * Body: { question_id }
- * Returns: { upload_url, audio_path, token }
+ * Body: { question_id, filename, content_type }
+ * Returns: { upload_url, file_path, token, max_size_bytes }
  *
- * Auth: candidate session cookie. Question must belong to the assessment
- * the cookie's response is for, and must be type='open'.
+ * Auth: candidate session cookie. Question must belong to the
+ * candidate's response and must be type='file'.
+ *
+ * Max size: 25 MB — generous for typical work samples (CAD exports,
+ * PDFs, photos). Reject larger files client-side before requesting
+ * the URL.
  */
 
 import { and, eq } from "drizzle-orm";
@@ -20,14 +23,20 @@ import { db } from "@/lib/db/client";
 import { questions, responses } from "@/lib/db/schema";
 import { getCandidateSession } from "@/lib/session";
 import {
+  filePathFor,
+  FILE_UPLOAD_BUCKET,
   getStorageAdmin,
-  VOICE_BUCKET,
-  voicePathFor,
 } from "@/lib/supabase/storage-admin";
 
-const inputSchema = z.object({ question_id: z.string().uuid() });
+const MAX_SIZE_BYTES = 25 * 1024 * 1024;
 
-export async function POST(req: Request) {
+const inputSchema = z.object({
+  question_id: z.string().uuid(),
+  filename: z.string().trim().min(1).max(200),
+  content_type: z.string().trim().min(1).max(120),
+});
+
+export async function POST(req: Request): Promise<NextResponse> {
   const responseId = await getCandidateSession();
   if (!responseId) {
     return NextResponse.json({ error: "no_session" }, { status: 401 });
@@ -40,14 +49,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   }
 
-  // Ownership / type check — the question must belong to the assessment
-  // the candidate's response is for, AND be type='open'.
   const [row] = await db
     .select({
       questionId: questions.id,
       questionType: questions.type,
-      assessmentId: questions.assessmentId,
-      responseAssessmentId: responses.assessmentId,
     })
     .from(questions)
     .innerJoin(responses, eq(responses.id, responseId))
@@ -62,24 +67,18 @@ export async function POST(req: Request) {
   if (!row) {
     return NextResponse.json({ error: "question_not_found" }, { status: 404 });
   }
-  // Voice upload is valid for 'open' and 'voice' types. file has its
-  // own /api/answers/file/upload-url; formula uses a numeric input.
-  if (row.questionType !== "open" && row.questionType !== "voice") {
+  if (row.questionType !== "file") {
     return NextResponse.json(
-      {
-        error: "wrong_question_type",
-        message: "Voice upload only valid on open-ended or voice questions.",
-      },
+      { error: "wrong_question_type", message: "Only valid on file questions." },
       { status: 400 },
     );
   }
 
-  const audioPath = voicePathFor(responseId, input.question_id);
-
+  const path = filePathFor(responseId, input.question_id, input.filename);
   const supabase = getStorageAdmin();
   const { data, error } = await supabase.storage
-    .from(VOICE_BUCKET)
-    .createSignedUploadUrl(audioPath, { upsert: true });
+    .from(FILE_UPLOAD_BUCKET)
+    .createSignedUploadUrl(path, { upsert: true });
 
   if (error || !data) {
     return NextResponse.json(
@@ -90,7 +89,8 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     upload_url: data.signedUrl,
-    audio_path: audioPath,
+    file_path: path,
     token: data.token,
+    max_size_bytes: MAX_SIZE_BYTES,
   });
 }

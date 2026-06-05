@@ -98,15 +98,51 @@ export async function notify(args: NotifyArgs): Promise<void> {
         payload,
       });
     } else if (channel === "cliq") {
-      // Cliq webhook adapter is a stub — flip NOTIFY_CHANNEL=cliq when
-      // the webhook URL is ready and replace this block with a fetch.
-      // Until then, we log the intent so we can audit what WOULD have
-      // been sent.
-      console.warn(
-        `[notify cliq stub] ${args.severity} ${args.eventType}`,
-        payload,
-      );
-      deliveryStatus = "cliq_stub";
+      // Cliq incoming-webhook adapter. Configure CLIQ_WEBHOOK_URL on
+      // Netlify with the channel's incoming webhook URL (Settings →
+      // Integrations → Webhooks in Cliq). Body shape matches Zoho
+      // Cliq's docs (text + bot block).
+      const url = process.env.CLIQ_WEBHOOK_URL?.trim();
+      if (!url) {
+        console.warn(
+          `[notify cliq] CLIQ_WEBHOOK_URL not set — would have sent ${args.severity} ${args.eventType}`,
+        );
+        deliveryStatus = "cliq_unconfigured";
+      } else {
+        const emoji =
+          args.severity === "critical"
+            ? "🚨"
+            : args.severity === "error"
+              ? "⛔"
+              : args.severity === "warn"
+                ? "⚠️"
+                : "ℹ️";
+        const summary = `${emoji} ${args.severity.toUpperCase()} — ${args.eventType}`;
+        const detailLines = Object.entries(payload)
+          .slice(0, 10)
+          .map(([k, v]) => {
+            const val =
+              typeof v === "string" ? v.slice(0, 200) : JSON.stringify(v);
+            return `*${k}*: ${val}`;
+          })
+          .join("\n");
+        const body = {
+          text: detailLines.length > 0 ? `${summary}\n${detailLines}` : summary,
+          bot: { name: "ETC Assessment", image: "✅" },
+        };
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(5_000),
+        });
+        if (!res.ok) {
+          deliveryStatus = `cliq_${res.status}`;
+          console.warn(
+            `[notify cliq] webhook returned ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`,
+          );
+        }
+      }
     } else {
       // noop channel — typically test environments or local dev.
       deliveryStatus = "noop";

@@ -31,6 +31,7 @@ import {
 import { HotspotAnswerInput } from "./HotspotAnswerInput";
 import { MatchingAnswerInput } from "./MatchingAnswerInput";
 import { ScenarioAnswerInput } from "./ScenarioAnswerInput";
+import { FileAnswerInput } from "./FileAnswerInput";
 import { FormulaAnswerInput } from "./FormulaAnswerInput";
 import { SequenceAnswerInput } from "./SequenceAnswerInput";
 import { SliderAnswerInput } from "./SliderAnswerInput";
@@ -147,11 +148,19 @@ export const AnswerInput = forwardRef<AnswerInputHandle, Props>(
       );
     }
 
-    // Voice + file fall through to the open-ended input.
-    // OpenEndedAnswerInput supports text and voice (via VoiceRecorder),
-    // so voice questions render naturally. File still falls back to
-    // typed text — the dedicated file upload UI is a separate item.
-    if (question.type === "voice" || question.type === "file") {
+    if (question.type === "file") {
+      return (
+        <FileAnswerInput
+          question={question}
+          onSubmit={onSubmit}
+          disabled={disabled}
+        />
+      );
+    }
+
+    // Voice falls through to the open-ended input — OpenEndedAnswerInput
+    // already supports voice via VoiceRecorder.
+    if (question.type === "voice") {
       return (
         <OpenEndedAnswerInput
           ref={openRef}

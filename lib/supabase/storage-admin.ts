@@ -38,3 +38,21 @@ export function voicePathFor(responseId: string, questionId: string): string {
   // webm or mp4 depending on browser; we record the actual MIME elsewhere.
   return `${responseId}/${questionId}`;
 }
+
+/**
+ * Bucket for candidate file-upload questions (Phase 2 'file' type).
+ * Separate from voice so storage policies + lifecycle rules differ.
+ */
+export const FILE_UPLOAD_BUCKET = "candidate-files";
+
+export function filePathFor(
+  responseId: string,
+  questionId: string,
+  originalName: string,
+): string {
+  // Sanitise the original filename — keep extension, strip everything else.
+  const safe = originalName
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .slice(-100);
+  return `${responseId}/${questionId}/${Date.now()}-${safe}`;
+}
