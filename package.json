@@ -14,7 +14,8 @@
     "db:push": "dotenv -e .env.local -- drizzle-kit push",
     "db:studio": "dotenv -e .env.local -- drizzle-kit studio",
     "db:seed": "dotenv -e .env.local -- tsx lib/db/seed.ts",
-    "worker": "tsx scripts/run-worker.mts"
+    "worker": "tsx scripts/run-worker.mts",
+    "worker:local": "dotenv -e .env.local -- tsx scripts/run-worker.mts"
   },
   "pnpm": {
     "ignoredBuiltDependencies": ["sharp", "unrs-resolver"]

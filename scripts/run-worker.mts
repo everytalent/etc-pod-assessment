@@ -29,19 +29,11 @@
  *   SUPABASE_SERVICE_ROLE_KEY       same
  */
 
-import { config as loadEnv } from "dotenv";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const __d = resolve(fileURLToPath(import.meta.url), "..");
-const root = resolve(__d, "..");
-// Railway provides env vars directly via the dashboard, so this load
-// is a no-op there. Locally it picks up .env.local for testing.
-for (const f of [".env", ".env.local"]) {
-  const p = resolve(root, f);
-  if (existsSync(p)) loadEnv({ path: p, override: true });
-}
+// Env loading: handled by the runtime.
+//   - Railway: env vars come from the dashboard directly.
+//   - Local: run `pnpm worker:local` (uses dotenv-cli to inject .env.local).
+// We deliberately don't import dotenv here so the worker doesn't depend
+// on a devDependency at runtime.
 if (!process.env.DATABASE_URL) {
   console.error(
     "[worker] FATAL: DATABASE_URL not set. Crashing so Railway restarts and you notice.",
