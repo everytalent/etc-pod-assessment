@@ -54,6 +54,11 @@ export async function GET(
       audioPath: answers.audioPath,
       audioDurationSeconds: answers.audioDurationSeconds,
       transcript: answers.transcript,
+      // Translation surface (Phase 4 columns on answers)
+      detectedLanguage: answers.detectedLanguage,
+      translatedText: answers.translatedText,
+      translatedTranscript: answers.translatedTranscript,
+      translationStatus: answers.translationStatus,
       scoredBy: answers.scoredBy,
       scoredAt: answers.scoredAt,
       timeSpentSeconds: answers.timeSpentSeconds,

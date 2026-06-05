@@ -31,6 +31,7 @@ import {
 import { HotspotAnswerInput } from "./HotspotAnswerInput";
 import { MatchingAnswerInput } from "./MatchingAnswerInput";
 import { ScenarioAnswerInput } from "./ScenarioAnswerInput";
+import { FormulaAnswerInput } from "./FormulaAnswerInput";
 import { SequenceAnswerInput } from "./SequenceAnswerInput";
 import { SliderAnswerInput } from "./SliderAnswerInput";
 import { VoiceRecorder, type VoiceRecorderHandle } from "./VoiceRecorder";
@@ -136,18 +137,21 @@ export const AnswerInput = forwardRef<AnswerInputHandle, Props>(
       );
     }
 
-    // Voice / file / formula fall back to the open-ended input.
-    // OpenEndedAnswerInput supports text and voice already, so voice
-    // questions render naturally. Formula and file accept typed text
-    // as the candidate's answer — not the ideal UX (a real spreadsheet
-    // formula editor or a file upload would be richer), but it
-    // unblocks the candidate flow and the rubric still grades the
-    // written explanation.
-    if (
-      question.type === "voice" ||
-      question.type === "file" ||
-      question.type === "formula"
-    ) {
+    if (question.type === "formula") {
+      return (
+        <FormulaAnswerInput
+          question={question}
+          onSubmit={onSubmit}
+          disabled={disabled}
+        />
+      );
+    }
+
+    // Voice + file fall through to the open-ended input.
+    // OpenEndedAnswerInput supports text and voice (via VoiceRecorder),
+    // so voice questions render naturally. File still falls back to
+    // typed text — the dedicated file upload UI is a separate item.
+    if (question.type === "voice" || question.type === "file") {
       return (
         <OpenEndedAnswerInput
           ref={openRef}

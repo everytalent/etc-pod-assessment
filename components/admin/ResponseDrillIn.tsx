@@ -49,6 +49,12 @@ type AnswerRow = {
   audioPath: string | null;
   audioDurationSeconds: number | null;
   transcript: string | null;
+  // Translation surface (Phase 4) — populated when the answer was
+  // detected as non-English and ran through Gemini translation.
+  detectedLanguage?: string | null;
+  translatedText?: string | null;
+  translatedTranscript?: string | null;
+  translationStatus?: "not_needed" | "pending" | "done" | "failed" | null;
   scoringRubric: string | null;
   aiScores: Partial<Record<"gemini" | "kimi", PersistedAiScore>>;
   scorer: Scorer;
@@ -961,6 +967,60 @@ function OpenEndedReviewBlock({
         <p className="text-xs text-muted-foreground">
           (no response submitted)
         </p>
+      )}
+
+      {/* Translation surface (Phase 4) — visible only when the answer
+          was detected as non-English. Shows the detected language +
+          translated text/transcript side-by-side. */}
+      {(answer.translatedText ||
+        answer.translatedTranscript ||
+        (answer.detectedLanguage && answer.detectedLanguage !== "en")) && (
+        <details
+          className="rounded-xl border border-blue-200 bg-blue-50/60 p-3"
+          open
+        >
+          <summary className="cursor-pointer text-[0.65rem] font-semibold uppercase tracking-wider text-blue-900">
+            🌐 Translation
+            {answer.detectedLanguage && (
+              <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-blue-900">
+                {answer.detectedLanguage}
+              </span>
+            )}
+            {answer.translationStatus && (
+              <span className="ml-2 text-[0.65rem] text-blue-900/70">
+                · {answer.translationStatus}
+              </span>
+            )}
+          </summary>
+          <div className="mt-2 space-y-2">
+            {answer.translatedText && (
+              <div>
+                <p className="text-[0.65rem] font-medium uppercase tracking-wider text-blue-900/70">
+                  Translated text (English)
+                </p>
+                <p className="mt-1 whitespace-pre-wrap rounded-lg border border-blue-200 bg-background p-3 text-sm leading-relaxed">
+                  {answer.translatedText}
+                </p>
+              </div>
+            )}
+            {answer.translatedTranscript && (
+              <div>
+                <p className="text-[0.65rem] font-medium uppercase tracking-wider text-blue-900/70">
+                  Translated transcript (English)
+                </p>
+                <p className="mt-1 whitespace-pre-wrap rounded-lg border border-blue-200 bg-background p-3 text-sm leading-relaxed">
+                  {answer.translatedTranscript}
+                </p>
+              </div>
+            )}
+            {answer.translationStatus === "failed" && (
+              <p className="text-[0.7rem] text-destructive">
+                Translation failed. Check the original text/voice above —
+                the AI scorers will fall back to the source language.
+              </p>
+            )}
+          </div>
+        </details>
       )}
 
       {/* Assessor scores side-by-side: human + Gemini + Kimi, whichever
