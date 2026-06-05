@@ -175,6 +175,7 @@ export type SkillboardDetail = {
   role_family: SkillboardRoleFamily;
   claude_authoring_brief: string | null;
   activated_at: string | null;
+  archived_at: string | null;
   /** Counts derived from level_expectations for the activation banner. */
   cell_counts: {
     total: number;
@@ -191,6 +192,7 @@ export type SkillboardListRow = {
   creation_path: SkillboardCreationPath;
   role_family: SkillboardRoleFamily;
   activated_at: string | null;
+  archived_at: string | null;
   cells_pending: number;
   cells_total: number;
   updated_at: string;

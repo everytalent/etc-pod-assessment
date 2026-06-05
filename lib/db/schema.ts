@@ -1037,6 +1037,13 @@ export const skillboards = pgTable("skillboards", {
    * anchored to it. Null while any cell is still pending or rejected.
    */
   activatedAt: timestamp("activated_at", { withTimezone: true }),
+  /**
+   * Soft-delete. Hidden from default admin lists and from POST
+   * /api/internal/sessions resolution while non-null. Historical
+   * responses/profiles still resolve their structure though, so the
+   * row stays around indefinitely. To undo, set back to null.
+   */
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

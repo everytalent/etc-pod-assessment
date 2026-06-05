@@ -111,11 +111,18 @@ export async function POST(req: Request): Promise<NextResponse> {
 
   for (const spec of input.specialisations) {
     const [board] = await db
-      .select({ id: skillboards.id, activatedAt: skillboards.activatedAt })
+      .select({
+        id: skillboards.id,
+        activatedAt: skillboards.activatedAt,
+        archivedAt: skillboards.archivedAt,
+      })
       .from(skillboards)
       .where(eq(skillboards.specialisation, spec))
       .limit(1);
-    if (!board) {
+    // Treat archived boards as "unknown" from the caller's perspective —
+    // the spec genuinely isn't available for new sessions, even if it
+    // existed historically.
+    if (!board || board.archivedAt) {
       unknown.push(spec);
       continue;
     }

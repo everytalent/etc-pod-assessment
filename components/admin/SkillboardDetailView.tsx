@@ -249,6 +249,39 @@ export function SkillboardDetailView({
     window.location.href = "/admin/skillboards";
   }
 
+  /**
+   * Archive / restore. Non-destructive — flips skillboards.archived_at.
+   * Archived boards stop showing on /admin/skillboards and stop being
+   * resolvable from POST /api/internal/sessions, but historical
+   * responses + profiles still resolve their structure.
+   */
+  async function onArchiveToggle(): Promise<void> {
+    const isArchiving = !board.archived_at;
+    const verb = isArchiving ? "archive" : "restore";
+    if (
+      !confirm(
+        `${verb[0].toUpperCase()}${verb.slice(1)} this skillboard?\n\n${
+          isArchiving
+            ? "It will disappear from the main list and stop being available for new candidate sessions. Historical results are unaffected. You can restore it later."
+            : "It will reappear in the main list and become available for new sessions again."
+        }`,
+      )
+    ) {
+      return;
+    }
+    const res = await fetch(`/api/admin/skillboards/${initial.id}/archive`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ archive: isArchiving }),
+    });
+    if (!res.ok) {
+      const data = (await res.json()) as { message?: string; error?: string };
+      alert(data.message ?? data.error ?? `${verb} failed.`);
+      return;
+    }
+    await refresh();
+  }
+
   async function onPatchBoard(updates: {
     specialisation?: string;
     description?: string;
@@ -315,6 +348,15 @@ export function SkillboardDetailView({
           >
             ✏️ Edit board
           </button>
+          {canDelete && (
+            <button
+              type="button"
+              onClick={onArchiveToggle}
+              className="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100"
+            >
+              {board.archived_at ? "↩️ Restore" : "📥 Archive"}
+            </button>
+          )}
           {canDelete && (
             <button
               type="button"

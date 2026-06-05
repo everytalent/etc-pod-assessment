@@ -206,8 +206,14 @@ export async function getSkillboardBySpecialisation(
   return row ?? null;
 }
 
-/** Lightweight list for /admin/skillboards. */
-export async function listSkillboards(): Promise<SkillboardListRow[]> {
+/**
+ * Lightweight list for /admin/skillboards. Hides archived boards by
+ * default. Pass { includeArchived: true } to surface them (admin can
+ * still see + restore via direct URL — this filter is for the list).
+ */
+export async function listSkillboards(
+  opts: { includeArchived?: boolean } = {},
+): Promise<SkillboardListRow[]> {
   // Run a sub-aggregate so we don't fetch every cell row to the app.
   const cellCounts = await db
     .select({
@@ -230,9 +236,15 @@ export async function listSkillboards(): Promise<SkillboardListRow[]> {
       creationPath: skillboards.creationPath,
       roleFamily: skillboards.roleFamily,
       activatedAt: skillboards.activatedAt,
+      archivedAt: skillboards.archivedAt,
       updatedAt: skillboards.updatedAt,
     })
     .from(skillboards)
+    .where(
+      opts.includeArchived
+        ? undefined
+        : sql`${skillboards.archivedAt} IS NULL`,
+    )
     .orderBy(asc(skillboards.specialisation));
 
   return boards.map((b) => ({
@@ -241,6 +253,7 @@ export async function listSkillboards(): Promise<SkillboardListRow[]> {
     creation_path: b.creationPath,
     role_family: b.roleFamily,
     activated_at: b.activatedAt?.toISOString() ?? null,
+    archived_at: b.archivedAt?.toISOString() ?? null,
     cells_pending: Number(byId.get(b.id)?.pending ?? 0),
     cells_total: Number(byId.get(b.id)?.total ?? 0),
     updated_at: b.updatedAt.toISOString(),
@@ -325,6 +338,7 @@ export async function getSkillboardDetail(
     role_family: board.roleFamily,
     claude_authoring_brief: board.claudeAuthoringBrief,
     activated_at: board.activatedAt?.toISOString() ?? null,
+    archived_at: board.archivedAt?.toISOString() ?? null,
     cell_counts: {
       total: totalCells,
       pending: pendingCells,
