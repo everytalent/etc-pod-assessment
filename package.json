@@ -16,6 +16,9 @@
     "db:seed": "dotenv -e .env.local -- tsx lib/db/seed.ts",
     "worker": "tsx scripts/run-worker.mts"
   },
+  "pnpm": {
+    "ignoredBuiltDependencies": ["sharp", "unrs-resolver"]
+  },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
