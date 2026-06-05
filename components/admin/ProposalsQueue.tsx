@@ -225,7 +225,8 @@ function ProposalCard({
           difficulty {payload.difficulty_score}
         </span>
         <span className="ml-auto normal-case text-muted-foreground">
-          {proposal.proposedAt.toLocaleDateString()} · by {proposal.proposedBy}
+          {new Date(proposal.proposedAt).toLocaleDateString()} · by{" "}
+          {proposal.proposedBy}
         </span>
       </div>
 
