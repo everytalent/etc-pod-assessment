@@ -230,36 +230,14 @@ export async function POST(req: Request): Promise<NextResponse> {
   );
 
   // ---------- 7. Create one responses row per spec ----------
-  // The candidate's URL only resolves the first row's id; downstream the
-  // session walker (in /take/[token]) handles transitions across specs.
-  const createdIds: string[] = [];
+  // We insert all rows in two passes so we know every sibling's id
+  // before stamping the cross-references onto each metadata. The
+  // session walker (in /api/sessions/finalize) uses those ids to
+  // route the candidate from one spec's last question to the next
+  // spec's first question without going through /done.
+  const created: { responseId: string; specialisation: string }[] = [];
   for (const spec of resolved) {
-    const metadata: ResponseMetadata & {
-      external_candidate_id: string;
-      specialisation: string;
-      claimed_band: typeof claimedBand;
-      session_expires_at: string;
-      redirect_url_after_completion?: string;
-      validation_origin: "onboarding_trigger";
-      sibling_specs?: string[];
-    } = {
-      // Existing ResponseMetadata fields default-empty
-      path: [],
-      // Plus our new validation-session fields:
-      external_candidate_id: input.candidate_id,
-      specialisation: spec.specialisation,
-      claimed_band: claimedBand,
-      session_expires_at: expiresAt.toISOString(),
-      redirect_url_after_completion: input.redirect_url_after_completion,
-      validation_origin: "onboarding_trigger",
-      sibling_specs:
-        resolved.length > 1
-          ? resolved
-              .filter((r) => r.specialisation !== spec.specialisation)
-              .map((r) => r.specialisation)
-          : undefined,
-    };
-
+    const placeholderMeta: ResponseMetadata = { path: [] };
     const [row] = await db
       .insert(responses)
       .values({
@@ -269,13 +247,46 @@ export async function POST(req: Request): Promise<NextResponse> {
         candidatePhone: profile.phone ?? null,
         status: "in_progress",
         validationStatus: "pending",
-        metadata,
+        metadata: placeholderMeta,
       })
       .returning({ id: responses.id });
-    createdIds.push(row.id);
+    created.push({ responseId: row.id, specialisation: spec.specialisation });
   }
 
-  const primaryToken = createdIds[0];
+  // Pass 2: stamp the full metadata on each row now that we know every
+  // sibling's id. sibling_response_ids preserves the original order
+  // (the walker advances along it).
+  for (const c of created) {
+    const siblings = created
+      .filter((s) => s.responseId !== c.responseId)
+      .map((s) => ({ response_id: s.responseId, specialisation: s.specialisation }));
+    const metadata: ResponseMetadata & {
+      external_candidate_id: string;
+      specialisation: string;
+      claimed_band: typeof claimedBand;
+      session_expires_at: string;
+      redirect_url_after_completion?: string;
+      validation_origin: "onboarding_trigger";
+      sibling_responses?: { response_id: string; specialisation: string }[];
+      walk_order: string[];
+    } = {
+      path: [],
+      external_candidate_id: input.candidate_id,
+      specialisation: c.specialisation,
+      claimed_band: claimedBand,
+      session_expires_at: expiresAt.toISOString(),
+      redirect_url_after_completion: input.redirect_url_after_completion,
+      validation_origin: "onboarding_trigger",
+      sibling_responses: siblings.length > 0 ? siblings : undefined,
+      walk_order: created.map((s) => s.responseId),
+    };
+    await db
+      .update(responses)
+      .set({ metadata })
+      .where(eq(responses.id, c.responseId));
+  }
+
+  const primaryToken = created[0].responseId;
   return NextResponse.json(
     {
       session_id: primaryToken,
