@@ -37,6 +37,8 @@ import type { CandidateQuestion } from "@/lib/assessment/validators";
 import type { AnswerPayload } from "@/lib/state/candidate-session";
 import { cn } from "@/lib/utils";
 
+import { InvalidConfigTextFallback } from "./InvalidConfigTextFallback";
+
 const sequenceConfigSchema = z.object({
   items: z
     .array(
@@ -75,9 +77,11 @@ export function SequenceAnswerInput({ question, onSubmit, disabled = false }: Pr
 
   if (!parsed) {
     return (
-      <div className="rounded-2xl border border-destructive bg-destructive/10 p-4 text-xs text-destructive">
-        This sequence question has an invalid configuration. Skip to continue.
-      </div>
+      <InvalidConfigTextFallback
+        onSubmit={onSubmit}
+        disabled={disabled}
+        hint="List the correct order of steps in your own words."
+      />
     );
   }
 

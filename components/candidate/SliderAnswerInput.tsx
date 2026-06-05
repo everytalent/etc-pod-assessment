@@ -21,6 +21,8 @@ import type { CandidateQuestion } from "@/lib/assessment/validators";
 import type { AnswerPayload } from "@/lib/state/candidate-session";
 import { cn } from "@/lib/utils";
 
+import { InvalidConfigTextFallback } from "./InvalidConfigTextFallback";
+
 const sliderConfigSchema = z.object({
   min: z.number(),
   max: z.number(),
@@ -54,9 +56,11 @@ export function SliderAnswerInput({ question, onSubmit, disabled = false }: Prop
 
   if (!parsed) {
     return (
-      <div className="rounded-2xl border border-destructive bg-destructive/10 p-4 text-xs text-destructive">
-        This slider question has an invalid configuration. Skip to continue.
-      </div>
+      <InvalidConfigTextFallback
+        onSubmit={onSubmit}
+        disabled={disabled}
+        hint="Type the numeric value you'd choose, with units."
+      />
     );
   }
 

@@ -25,6 +25,8 @@ import type { CandidateQuestion } from "@/lib/assessment/validators";
 import type { AnswerPayload } from "@/lib/state/candidate-session";
 import { cn } from "@/lib/utils";
 
+import { InvalidConfigTextFallback } from "./InvalidConfigTextFallback";
+
 const matchingConfigSchema = z.object({
   lhs: z
     .array(z.object({ id: z.string().min(1), label: z.string().min(1) }))
@@ -52,9 +54,11 @@ export function MatchingAnswerInput({ question, onSubmit, disabled = false }: Pr
 
   if (!parsed) {
     return (
-      <div className="rounded-2xl border border-destructive bg-destructive/10 p-4 text-xs text-destructive">
-        This matching question has an invalid configuration. Skip to continue.
-      </div>
+      <InvalidConfigTextFallback
+        onSubmit={onSubmit}
+        disabled={disabled}
+        hint="Describe which item matches which, in your own words."
+      />
     );
   }
 

@@ -110,15 +110,69 @@ export function VettedProfilePanel({
   const { validation_result, profiles, overrides } = bundle;
   const overallConfidence = (validation_result.confidence / 100).toFixed(2);
 
+  const [retryCallbackState, setRetryCallbackState] = useState<
+    | { kind: "idle" }
+    | { kind: "sending" }
+    | { kind: "ok"; attempts: number }
+    | { kind: "error"; message: string }
+  >({ kind: "idle" });
+
+  async function handleRetryCallback() {
+    setRetryCallbackState({ kind: "sending" });
+    const res = await fetch(
+      `/api/admin/responses/${responseId}/retry-onboarding-callback`,
+      { method: "POST" },
+    );
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      attempts?: number;
+      error?: string;
+      message?: string;
+    };
+    if (data.ok) {
+      setRetryCallbackState({
+        kind: "ok",
+        attempts: data.attempts ?? 0,
+      });
+    } else {
+      setRetryCallbackState({
+        kind: "error",
+        message: data.message ?? data.error ?? `HTTP ${res.status}`,
+      });
+    }
+  }
+
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">
-      <div className="mb-4">
+      <div className="mb-4 flex items-center justify-between">
         <a
           href={`/admin/responses/${responseId}`}
           className="text-xs text-muted-foreground hover:underline"
         >
           ← back to response
         </a>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleRetryCallback}
+            disabled={retryCallbackState.kind === "sending"}
+            className="rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium hover:border-etc-marigold disabled:opacity-50"
+          >
+            {retryCallbackState.kind === "sending"
+              ? "Sending…"
+              : "↻ Resend to Onboarding"}
+          </button>
+          {retryCallbackState.kind === "ok" && (
+            <span className="text-[0.7rem] text-green-700">
+              sent after {retryCallbackState.attempts} attempt(s)
+            </span>
+          )}
+          {retryCallbackState.kind === "error" && (
+            <span className="text-[0.7rem] text-destructive">
+              {retryCallbackState.message.slice(0, 80)}
+            </span>
+          )}
+        </div>
       </div>
 
       <header className="mb-6 flex items-end justify-between">

@@ -20,6 +20,8 @@ import type { CandidateQuestion } from "@/lib/assessment/validators";
 import type { AnswerPayload } from "@/lib/state/candidate-session";
 import { cn } from "@/lib/utils";
 
+import { InvalidConfigTextFallback } from "./InvalidConfigTextFallback";
+
 const hotspotConfigSchema = z.object({
   image_path: z.string().min(1),
 });
@@ -51,9 +53,11 @@ export function HotspotAnswerInput({ question, onSubmit, disabled = false }: Pro
 
   if (!parsed) {
     return (
-      <div className="rounded-2xl border border-destructive bg-destructive/10 p-4 text-xs text-destructive">
-        This hotspot question has an invalid configuration. Skip to continue.
-      </div>
+      <InvalidConfigTextFallback
+        onSubmit={onSubmit}
+        disabled={disabled}
+        hint="Describe the location/region you would click, with reasoning."
+      />
     );
   }
 

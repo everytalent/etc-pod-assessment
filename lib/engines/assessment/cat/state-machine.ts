@@ -78,6 +78,14 @@ export type CatSnapshot = {
   lockedBand: SeniorityBand | null;
   /** Trace of state transitions for the response.metadata.adaptive_plan column. */
   transitions: Array<{ atAnswer: number; from: CatState; to: CatState; reason: string }>;
+  /**
+   * Stuck-detector counter: number of consecutive picks in refining
+   * state where the (focusBand, focusLevel) was identical. Resets
+   * when the focus changes or when we leave refining. Triggers
+   * early-finalise once REFINING_STUCK_THRESHOLD is reached AND
+   * MIN_QUESTIONS_BEFORE_END is satisfied.
+   */
+  refiningStreak: number;
 };
 
 export type AnswerSignal = {
@@ -118,6 +126,7 @@ export function initialSnapshot(args: {
     budget: args.budget,
     lockedBand: null,
     transitions: [],
+    refiningStreak: 0,
   };
 }
 
@@ -125,6 +134,21 @@ export function initialSnapshot(args: {
 
 const CALIBRATING_WINDOW = 3;
 const PROBING_WINDOW = 3;
+
+/**
+ * Minimum answered count before the engine may finalise. Prevents
+ * degenerate end states like "2 answers, 50% confidence" that we
+ * saw on early-end sessions.
+ */
+const MIN_QUESTIONS_BEFORE_END = 5;
+
+/**
+ * If the focus target (band+level) hasn't changed for N consecutive
+ * picks while in refining state AND we're past the min question
+ * count, the estimate has stabilised and additional questions add
+ * no information — early-finalise.
+ */
+const REFINING_STUCK_THRESHOLD = 4;
 
 export function step(args: {
   current: CatSnapshot;
@@ -144,8 +168,14 @@ export function step(args: {
     next.answeredCount = next.answeredCount + 1;
   }
 
-  // Budget exhaustion always wins.
-  if (next.answeredCount >= next.budget) {
+  // Budget exhaustion always wins — but only after the minimum
+  // question count. Below the minimum we keep asking even if the
+  // configured budget would have ended us; prevents degenerate
+  // "2 answers, 50% confidence" outcomes seen in early sessions.
+  if (
+    next.answeredCount >= next.budget &&
+    next.answeredCount >= MIN_QUESTIONS_BEFORE_END
+  ) {
     next.state = "stabilised";
     return finalise(next);
   }
@@ -229,7 +259,36 @@ export function step(args: {
       next.focusBand = next.lockedBand;
     }
     const targetRank = Math.max(0, Math.min(4, Math.round(next.estimateLevel)));
-    next.focusLevel = LEVEL_BY_RANK[targetRank];
+    const newFocusLevel = LEVEL_BY_RANK[targetRank];
+
+    // Stuck detector: if focus didn't move, bump the streak; otherwise
+    // reset. Early-finalise once both gates pass.
+    if (
+      newFocusLevel === next.focusLevel &&
+      next.focusBand === (next.lockedBand ?? next.focusBand)
+    ) {
+      next.refiningStreak = next.refiningStreak + 1;
+    } else {
+      next.refiningStreak = 0;
+    }
+    next.focusLevel = newFocusLevel;
+
+    if (
+      next.refiningStreak >= REFINING_STUCK_THRESHOLD &&
+      next.answeredCount >= MIN_QUESTIONS_BEFORE_END
+    ) {
+      recordTransition(
+        next,
+        "refining",
+        "stabilised",
+        `focus unchanged for ${next.refiningStreak} consecutive picks`,
+      );
+      next.state = "stabilised";
+      return finalise(next);
+    }
+  } else {
+    // Any state transition that isn't refining → reset the streak.
+    next.refiningStreak = 0;
   }
 
   // Pick the next question target = (focusBand, focusLevel).
