@@ -499,9 +499,22 @@ export function isRegenerationCapped(count: number): boolean {
 
 /* ---------- Bulk approve ---------- */
 
+/**
+ * Build the approval-state filter used by every bulk-approve helper.
+ * When includeRejected is true we also flip rejected cells back to
+ * approved — for "I changed my mind about those rejections" workflows.
+ * Default is pending-only so existing callers' semantics are unchanged.
+ */
+function bulkApprovableStateFilter(includeRejected: boolean) {
+  return includeRejected
+    ? inArray(levelExpectations.approvalState, ["pending", "rejected"] as const)
+    : eq(levelExpectations.approvalState, "pending");
+}
+
 export async function bulkApproveByTask(args: {
   taskId: string;
   approvedBy: string;
+  includeRejected?: boolean;
 }): Promise<number> {
   const updated = await db
     .update(levelExpectations)
@@ -515,7 +528,7 @@ export async function bulkApproveByTask(args: {
     .where(
       and(
         eq(levelExpectations.taskId, args.taskId),
-        eq(levelExpectations.approvalState, "pending"),
+        bulkApprovableStateFilter(args.includeRejected ?? false),
       ),
     )
     .returning({ id: levelExpectations.id });
@@ -525,6 +538,7 @@ export async function bulkApproveByTask(args: {
 export async function bulkApproveBySkill(args: {
   skillId: string;
   approvedBy: string;
+  includeRejected?: boolean;
 }): Promise<number> {
   // Single SQL with sub-query so we don't fetch the task ids to the app.
   const updated = await db
@@ -538,7 +552,7 @@ export async function bulkApproveBySkill(args: {
     })
     .where(
       and(
-        eq(levelExpectations.approvalState, "pending"),
+        bulkApprovableStateFilter(args.includeRejected ?? false),
         inArray(
           levelExpectations.taskId,
           db
@@ -555,6 +569,7 @@ export async function bulkApproveBySkill(args: {
 export async function bulkApproveAllPending(args: {
   skillboardId: string;
   approvedBy: string;
+  includeRejected?: boolean;
 }): Promise<number> {
   const updated = await db
     .update(levelExpectations)
@@ -567,7 +582,7 @@ export async function bulkApproveAllPending(args: {
     })
     .where(
       and(
-        eq(levelExpectations.approvalState, "pending"),
+        bulkApprovableStateFilter(args.includeRejected ?? false),
         inArray(
           levelExpectations.taskId,
           db

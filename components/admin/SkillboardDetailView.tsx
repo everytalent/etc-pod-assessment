@@ -142,8 +142,15 @@ export function SkillboardDetailView({
     });
     await refresh();
   }
-  async function onBulkApprove(scope: "row" | "skill" | "all", id?: string) {
-    const body: Record<string, unknown> = { scope };
+  async function onBulkApprove(
+    scope: "row" | "skill" | "all",
+    id?: string,
+    includeRejected = false,
+  ) {
+    const body: Record<string, unknown> = {
+      scope,
+      include_rejected: includeRejected,
+    };
     if (scope === "row") body.task_id = id;
     if (scope === "skill") body.skill_id = id;
     await fetch(`/api/admin/skillboards/${initial.id}/approve-bulk`, {
@@ -385,6 +392,15 @@ export function SkillboardDetailView({
         canDelete={canDelete}
         onActivate={onActivate}
         onBulkApproveAll={() => onBulkApprove("all")}
+        onApproveAllIncludingRejected={() => {
+          if (
+            confirm(
+              `Flip every rejected cell on this board back to approved? Use this only if the rejections were a mistake — the original chioma.ai text stands and activation can proceed.`,
+            )
+          ) {
+            void onBulkApprove("all", undefined, true);
+          }
+        }}
         activationError={activationError}
       />
 
@@ -486,6 +502,7 @@ function ActivationBanner({
   canDelete,
   onActivate,
   onBulkApproveAll,
+  onApproveAllIncludingRejected,
   activationError,
 }: {
   board: SkillboardDetail;
@@ -494,6 +511,7 @@ function ActivationBanner({
   canDelete: boolean;
   onActivate: () => void;
   onBulkApproveAll: () => void;
+  onApproveAllIncludingRejected: () => void;
   activationError: string | null;
 }) {
   const { total, pending, approved, rejected } = board.cell_counts;
@@ -578,13 +596,28 @@ function ActivationBanner({
             activate.
           </p>
         </div>
-        {canApprove && pending > 0 && (
-          <button
-            onClick={onBulkApproveAll}
-            className="inline-flex h-9 items-center justify-center rounded-xl border border-amber-400 bg-amber-100 px-4 text-xs font-semibold text-amber-900 hover:bg-amber-200"
-          >
-            Approve all {pending} pending
-          </button>
+        {canApprove && (pending > 0 || rejected > 0) && (
+          <div className="flex flex-col items-end gap-1">
+            {pending > 0 && (
+              <button
+                type="button"
+                onClick={onBulkApproveAll}
+                className="inline-flex h-9 items-center justify-center rounded-xl border border-amber-400 bg-amber-100 px-4 text-xs font-semibold text-amber-900 hover:bg-amber-200"
+              >
+                Approve all {pending} pending
+              </button>
+            )}
+            {rejected > 0 && (
+              <button
+                type="button"
+                onClick={onApproveAllIncludingRejected}
+                className="inline-flex h-9 items-center justify-center rounded-xl border border-amber-400 bg-white px-4 text-xs font-medium text-amber-900 hover:bg-amber-50"
+                title="Flip the rejected cells back to approved. Use when the rejection was a mistake."
+              >
+                Force-approve {rejected} rejected
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>

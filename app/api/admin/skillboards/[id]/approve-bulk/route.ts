@@ -46,21 +46,25 @@ export async function POST(
   }
 
   const approver = auth.session.admin.id;
+  const includeRejected = input.include_rejected;
   let approved = 0;
   if (input.scope === "row") {
     approved = await bulkApproveByTask({
       taskId: input.task_id,
       approvedBy: approver,
+      includeRejected,
     });
   } else if (input.scope === "skill") {
     approved = await bulkApproveBySkill({
       skillId: input.skill_id,
       approvedBy: approver,
+      includeRejected,
     });
   } else {
     approved = await bulkApproveAllPending({
       skillboardId: id,
       approvedBy: approver,
+      includeRejected,
     });
   }
 

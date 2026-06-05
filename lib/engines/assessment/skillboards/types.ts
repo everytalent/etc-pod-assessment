@@ -122,10 +122,28 @@ export const rejectCellInputSchema = z.object({
 });
 export type RejectCellInput = z.infer<typeof rejectCellInputSchema>;
 
+/**
+ * When include_rejected is true, the bulk-approve action flips
+ * `rejected` cells back to `approved` as well as `pending` ones —
+ * for "the rejections were a mistake, accept the original text"
+ * recovery flows. Default false preserves the pending-only semantics
+ * everything else expects.
+ */
 export const bulkApproveInputSchema = z.discriminatedUnion("scope", [
-  z.object({ scope: z.literal("row"), task_id: z.string().uuid() }),
-  z.object({ scope: z.literal("skill"), skill_id: z.string().uuid() }),
-  z.object({ scope: z.literal("all") }),
+  z.object({
+    scope: z.literal("row"),
+    task_id: z.string().uuid(),
+    include_rejected: z.boolean().default(false),
+  }),
+  z.object({
+    scope: z.literal("skill"),
+    skill_id: z.string().uuid(),
+    include_rejected: z.boolean().default(false),
+  }),
+  z.object({
+    scope: z.literal("all"),
+    include_rejected: z.boolean().default(false),
+  }),
 ]);
 export type BulkApproveInput = z.infer<typeof bulkApproveInputSchema>;
 
