@@ -46,6 +46,13 @@ export default async function NewSkillboardPage() {
         <p className="mt-1 text-sm text-muted-foreground">
           chioma.ai will author skills, tasks, and 15 expectation cells per
           task. Per-task cells run as a background queue you can monitor.
+          {" "}
+          <Link
+            href="/admin/skillboards/upload"
+            className="font-medium underline hover:text-foreground"
+          >
+            Prefer to upload an Excel template?
+          </Link>
         </p>
       </div>
       <NewSkillboardForm />
