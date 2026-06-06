@@ -345,6 +345,7 @@ export async function getSkillboardDetail(
       approved: approvedCells,
       rejected: rejectedCells,
     },
+    feedback_notes: (board.feedbackNotes ?? []) as SkillboardDetail["feedback_notes"],
     skills: skillsTree,
   };
 }
@@ -436,6 +437,22 @@ export async function rejectCell(args: {
   rejectionNotes: string;
   rejectedBy: string;
 }): Promise<void> {
+  // Fetch context for the feedback corpus entry BEFORE flipping state
+  // so we can describe what was rejected without re-querying after.
+  const [ctx] = await db
+    .select({
+      taskId: levelExpectations.taskId,
+      band: levelExpectations.band,
+      level: levelExpectations.level,
+      taskName: tasks.name,
+      skillboardId: skills.skillboardId,
+    })
+    .from(levelExpectations)
+    .innerJoin(tasks, eq(tasks.id, levelExpectations.taskId))
+    .innerJoin(skills, eq(skills.id, tasks.skillId))
+    .where(eq(levelExpectations.id, args.cellId))
+    .limit(1);
+
   await db
     .update(levelExpectations)
     .set({
@@ -448,6 +465,23 @@ export async function rejectCell(args: {
       updatedAt: new Date(),
     })
     .where(eq(levelExpectations.id, args.cellId));
+
+  // Best-effort: append to the skillboard's feedback corpus. Failures
+  // are swallowed so a corpus-write hiccup never blocks a rejection.
+  if (ctx) {
+    try {
+      const { appendFeedbackNote } = await import("./feedback-corpus");
+      await appendFeedbackNote(ctx.skillboardId, {
+        at: new Date().toISOString(),
+        by: args.rejectedBy,
+        source: "cell",
+        notes: args.rejectionNotes,
+        context: `${ctx.band} · ${ctx.level} · ${ctx.taskName}`,
+      });
+    } catch {
+      // ignore
+    }
+  }
 }
 
 /**

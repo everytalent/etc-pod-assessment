@@ -201,6 +201,18 @@ export type SkillboardDetail = {
     approved: number;
     rejected: number;
   };
+  /**
+   * Reviewer feedback corpus — every rejection (cell or proposal) appends
+   * here and future Opus prompts inject these notes as a "Past reviewer
+   * feedback to address" section.
+   */
+  feedback_notes: Array<{
+    at: string;
+    by: string;
+    source: "cell" | "proposal";
+    notes: string;
+    context?: string;
+  }>;
   skills: SkillWithTasks[];
 };
 

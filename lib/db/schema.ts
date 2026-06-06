@@ -326,6 +326,7 @@ export const authoringJobTypeEnum = pgEnum("authoring_job_type", [
   "task_cells",
   "cell_regeneration",
   "bank_seed",
+  "proposal_regeneration",
 ]);
 
 /**
@@ -961,6 +962,25 @@ export type ScoreSource = (typeof scoreSourceEnum.enumValues)[number];
 /* ---------- jsonb shapes (Validation Engine) ---------- */
 
 export type SkillboardMindset = { name: string; description: string };
+
+/**
+ * One entry in skillboards.feedback_notes. Captured automatically when
+ * a cell or proposal is rejected; surfaced back into future Opus
+ * prompts so the brief learns from every rejection.
+ *
+ *   source = 'cell' : entry came from a level_expectations rejection
+ *   source = 'proposal' : entry came from a question_bank_proposals reject
+ *
+ * `context` is free-text describing what was being authored when the
+ * note was captured (e.g. "Junior · Growing · 'Measure roof…' task").
+ */
+export type SkillboardFeedbackEntry = {
+  at: string; // ISO timestamp
+  by: string; // admin uuid
+  source: "cell" | "proposal";
+  notes: string;
+  context?: string;
+};
 export type SkillboardBehaviouralSkill = { name: string; description: string };
 export type SkillboardSourceFile =
   | { kind: "upload"; filename: string; storage_path: string; mime: string }
@@ -1044,6 +1064,19 @@ export const skillboards = pgTable("skillboards", {
    * row stays around indefinitely. To undo, set back to null.
    */
   archivedAt: timestamp("archived_at", { withTimezone: true }),
+  /**
+   * Accumulated reviewer feedback corpus. Every cell rejection or
+   * question-bank-proposal rejection auto-appends an entry. Read by
+   * buildFeedbackContextBlock() and injected into seed/regen/structure
+   * Opus prompts as "Past reviewer feedback to address" — so the
+   * skillboard's brief effectively learns from each rejection.
+   *
+   * Admins can curate via the skillboard edit panel (trim, edit, etc.).
+   */
+  feedbackNotes: jsonb("feedback_notes")
+    .$type<SkillboardFeedbackEntry[]>()
+    .notNull()
+    .default([]),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

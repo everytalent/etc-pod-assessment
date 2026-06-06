@@ -76,7 +76,51 @@ export async function POST(
         reviewNotes: input.notes,
       })
       .where(eq(questionBankProposals.id, id));
-    return NextResponse.json({ rejected: true });
+
+    // Append to skillboard feedback corpus + enqueue a regen job so
+    // Opus takes another swing using the rejection notes as guidance.
+    let regenEnqueued = false;
+    try {
+      const { skillboardIdForSpecialisation, appendFeedbackNote } =
+        await import("@/lib/engines/assessment/skillboards/feedback-corpus");
+      const skillboardId = await skillboardIdForSpecialisation(
+        proposal.specialisation,
+      );
+      if (skillboardId) {
+        const payload = proposal.payload as { question_text?: string } | null;
+        await appendFeedbackNote(skillboardId, {
+          at: new Date().toISOString(),
+          by: auth.session.admin.id,
+          source: "proposal",
+          notes: input.notes,
+          context: `${proposal.band ?? "?"} · ${proposal.level ?? "?"} · "${(payload?.question_text ?? "").slice(0, 80)}"`,
+        });
+        // Enqueue a proposal_regeneration job. The worker will read the
+        // rejected proposal + notes + skillboard feedback corpus and
+        // produce a fresh pending proposal alongside the rejected one.
+        const { skillboardAuthoringJobs } = await import("@/lib/db/schema");
+        await db.insert(skillboardAuthoringJobs).values({
+          skillboardId,
+          jobType: "proposal_regeneration",
+          result: {
+            rejected_proposal_id: id,
+            rejection_notes: input.notes,
+            specialisation: proposal.specialisation,
+            band: proposal.band,
+            level: proposal.level,
+            task_id: proposal.taskId,
+          } as unknown,
+        });
+        regenEnqueued = true;
+      }
+    } catch (err) {
+      console.warn(
+        "[proposal reject] feedback-corpus/regen enqueue failed:",
+        err instanceof Error ? err.message : "unknown",
+      );
+    }
+
+    return NextResponse.json({ rejected: true, regen_enqueued: regenEnqueued });
   }
 
   // Approve: route by action type.

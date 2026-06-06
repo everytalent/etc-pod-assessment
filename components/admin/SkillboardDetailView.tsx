@@ -1465,6 +1465,8 @@ function EditBoardPanel({
           onChange={setBehavioural}
           maxRows={20}
         />
+
+        <FeedbackCorpusReadOnly notes={board.feedback_notes} />
       </div>
 
       {errorMsg && (
@@ -1491,6 +1493,56 @@ function EditBoardPanel({
         </button>
       </div>
     </section>
+  );
+}
+
+function FeedbackCorpusReadOnly({
+  notes,
+}: {
+  notes: SkillboardDetail["feedback_notes"];
+}) {
+  if (!notes || notes.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3 text-[0.7rem] text-muted-foreground">
+        <span className="font-semibold uppercase tracking-wider">
+          Reviewer feedback corpus
+        </span>
+        <p className="mt-1">
+          Empty so far. Every cell or proposal you reject is appended here and
+          fed back into future Opus prompts for this board.
+        </p>
+      </div>
+    );
+  }
+  const visible = [...notes].slice(-20).reverse();
+  return (
+    <div className="rounded-lg border border-border bg-muted/20 p-3">
+      <div className="mb-2 flex items-baseline justify-between">
+        <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-muted-foreground">
+          Reviewer feedback corpus ({notes.length})
+        </span>
+        <span className="text-[0.65rem] text-muted-foreground">
+          Newest 20 shown · injected into every future Opus call
+        </span>
+      </div>
+      <ul className="space-y-2">
+        {visible.map((n, i) => (
+          <li
+            key={i}
+            className="rounded-md border border-border bg-background p-2 text-[0.7rem]"
+          >
+            <div className="mb-1 flex items-center justify-between text-[0.6rem] text-muted-foreground">
+              <span className="font-mono uppercase">
+                {n.source}
+                {n.context ? ` · ${n.context}` : ""}
+              </span>
+              <span>{new Date(n.at).toLocaleDateString()}</span>
+            </div>
+            <p className="whitespace-pre-wrap leading-snug">{n.notes}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

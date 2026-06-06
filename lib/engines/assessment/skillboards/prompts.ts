@@ -55,6 +55,12 @@ export type StructurePromptArgs = {
   brief: string;
   referenceUrls?: string[];
   parentSkillboardSummary?: string;
+  /**
+   * Pre-built reviewer-feedback block (from buildFeedbackContextBlock).
+   * Empty string disables the section. Built by the caller so this
+   * module stays free of DB imports.
+   */
+  feedbackBlock?: string;
 };
 
 export function buildStructurePrompt(args: StructurePromptArgs): {
@@ -81,7 +87,7 @@ ${escapeXml(args.brief)}
 ${refBlock}
 
 ${parentBlock}
-
+${args.feedbackBlock ?? ""}
 Produce the SKILLBOARD STRUCTURE for this specialisation. Do NOT produce expectation cells yet — those come in a separate pass.
 
 Return ONLY a JSON object with this exact shape (no markdown, no prose):
@@ -140,6 +146,8 @@ export type TaskCellsPromptArgs = {
    * Format: "band|level|text" lines.
    */
   parentCells?: string;
+  /** See StructurePromptArgs.feedbackBlock. */
+  feedbackBlock?: string;
 };
 
 /**
@@ -192,7 +200,7 @@ Sibling tasks under the same skill (avoid overlapping their expectations):
 ${siblings}
 
 ${parentBlock}
-
+${args.feedbackBlock ?? ""}
 Produce the 15-cell expectation grid for THIS task only. Each cell describes what a person at that (band, level) can do for this specific task.
 
 Return ONLY a JSON object with this exact shape (no markdown, no prose):
@@ -229,6 +237,8 @@ export type CellRegenPromptArgs = {
   level: PerformanceLevel;
   previousText: string;
   rejectionNotes: string;
+  /** See StructurePromptArgs.feedbackBlock. */
+  feedbackBlock?: string;
 };
 
 export function buildCellRegenPrompt(args: CellRegenPromptArgs): {
@@ -250,7 +260,7 @@ ${escapeXml(args.previousText)}
 <rejection_notes>
 ${escapeXml(args.rejectionNotes)}
 </rejection_notes>
-
+${args.feedbackBlock ?? ""}
 Author a new draft that addresses the reviewer's notes specifically. Do NOT simply tweak wording — re-think the substance if the notes call for it.
 
 Return ONLY a JSON object with this exact shape:
