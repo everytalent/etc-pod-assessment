@@ -1582,3 +1582,67 @@ export type SkillboardAuthoringJob =
   typeof skillboardAuthoringJobs.$inferSelect;
 export type NewSkillboardAuthoringJob =
   typeof skillboardAuthoringJobs.$inferInsert;
+
+/* ========================================================================== *
+ *  TENANT FOUNDATION (PRD 2026-06-02-tenant-assessment-builder.md, Phase 0)  *
+ * ========================================================================== *
+ * Two-tier auth mirrors admin_users: Supabase magic-link verifies the email,
+ * then the email must also exist in tenant_users (scoped to one tenant).
+ *
+ * Country is locked at signup; currency + pricing_tier derive from it via
+ * lib/tenant/country.ts. Moving country = new account.
+ */
+
+export const tenantPricingTierEnum = pgEnum("tenant_pricing_tier", [
+  "nigeria",
+  "international",
+  "us",
+]);
+
+export const tenantRoleEnum = pgEnum("tenant_role", [
+  "owner",
+  "admin",
+  "member",
+]);
+
+export const tenants = pgTable("tenants", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  /**
+   * ISO 3166-1 alpha-2 for NG/UK/CA/AE/US. 'XK' is an internal sentinel
+   * for the Caribbean grouping in the PRD (no single ISO code).
+   */
+  countryCode: text("country_code").notNull(),
+  currencyCode: text("currency_code").notNull(),
+  pricingTier: tenantPricingTierEnum("pricing_tier").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const tenantUsers = pgTable("tenant_users", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  email: text("email").notNull().unique(),
+  role: tenantRoleEnum("role").notNull().default("member"),
+  invitedBy: uuid("invited_by"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type Tenant = typeof tenants.$inferSelect;
+export type NewTenant = typeof tenants.$inferInsert;
+export type TenantUser = typeof tenantUsers.$inferSelect;
+export type NewTenantUser = typeof tenantUsers.$inferInsert;
+export type TenantPricingTier =
+  (typeof tenantPricingTierEnum.enumValues)[number];
+export type TenantRole = (typeof tenantRoleEnum.enumValues)[number];
