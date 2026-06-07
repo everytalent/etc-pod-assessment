@@ -3,13 +3,14 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { ProverbEngine } from "@/components/tenant/ProverbEngine";
+import { StageTracker } from "@/components/tenant/StageTracker";
+
 const STAGE_LABELS: Record<string, string> = {
   reading_role: "Reading your input",
   calibrating: "Calibrating the framework",
   crafting: "Crafting the questions",
   finalising: "Finalising your assessment",
-  ready: "Ready",
-  failed: "Generation failed",
 };
 
 export function WaitingClient({
@@ -87,45 +88,17 @@ export function WaitingClient({
   }
 
   return (
-    <section className="mx-auto max-w-xl rounded-2xl border border-border bg-card p-8 text-center">
-      <div className="flex justify-center">
-        <Spinner />
-      </div>
-      <h1 className="mt-6 text-xl font-bold">{STAGE_LABELS[stage] ?? stage}</h1>
+    <section className="mx-auto max-w-xl text-center">
+      <h1 className="text-xl font-bold">{STAGE_LABELS[stage] ?? stage}</h1>
       <p className="mt-3 text-sm text-muted-foreground">
-        ETC's Assessment Algorithm is at work. You can wait here, or close this
-        tab. We will email you when it is ready.
+        ETC&apos;s Assessment Algorithm is at work. You can wait here, or close
+        this tab. We will email you when it is ready.
       </p>
-      <ProgressStages current={stage} />
+      <div className="mt-6">
+        <StageTracker current={stage} />
+      </div>
+      <ProverbEngine stage={stage} />
     </section>
-  );
-}
-
-function ProgressStages({ current }: { current: string }) {
-  const stages = ["reading_role", "calibrating", "crafting", "finalising"];
-  const idx = stages.indexOf(current);
-  return (
-    <ol className="mt-6 flex items-center justify-center gap-1.5">
-      {stages.map((s, i) => (
-        <li
-          key={s}
-          className="h-1.5 w-8 rounded-full"
-          style={{
-            background:
-              i <= idx ? "var(--tenant-primary, #f1b240)" : "rgba(0,0,0,0.1)",
-          }}
-        />
-      ))}
-    </ol>
-  );
-}
-
-function Spinner() {
-  return (
-    <span
-      className="inline-block h-10 w-10 animate-spin rounded-full border-4 border-muted border-t-foreground"
-      aria-hidden
-    />
   );
 }
 

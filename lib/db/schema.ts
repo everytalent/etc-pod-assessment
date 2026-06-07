@@ -1868,6 +1868,41 @@ export type TenantAssessmentRoute =
   (typeof tenantAssessmentRouteEnum.enumValues)[number];
 
 /**
+ * Proverb library (PRD §3, migration 0020). Tagged against the four
+ * tenant-visible stages. Client never sees proverbs with active=false.
+ */
+export const proverb = pgTable(
+  "proverb",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    language: text("language").notNull(),
+    originalText: text("original_text").notNull(),
+    transliteration: text("transliteration"),
+    englishTranslation: text("english_translation").notNull(),
+    stages: jsonb("stages").$type<ProverbStage[]>().notNull().default([]),
+    contextualNote: text("contextual_note").notNull().default(""),
+    sourceAttribution: text("source_attribution"),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("proverb_active_idx").on(t.active),
+    index("proverb_language_idx").on(t.language),
+  ],
+);
+
+export type ProverbStage =
+  | "reading_role"
+  | "calibrating"
+  | "crafting"
+  | "finalising";
+
+export type Proverb = typeof proverb.$inferSelect;
+export type NewProverb = typeof proverb.$inferInsert;
+
+/**
  * Hardcoded brand defaults so callers that have no row yet still render
  * with ETC's palette and the candidate runner doesn't crash on null.
  */
