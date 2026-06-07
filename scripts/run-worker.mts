@@ -47,6 +47,9 @@ const { skillboardAuthoringJobs } = await import("../lib/db/schema.js");
 const { processNextAuthoringJob } = await import(
   "../lib/engines/assessment/skillboards/claude-author.js"
 );
+const { processOneTenantBankFromQueue, rescueStuckTenantBanks } = await import(
+  "../lib/engines/tenant-builder/worker.js"
+);
 
 /* ---------- Config ---------- */
 
@@ -100,6 +103,12 @@ while (!shuttingDown) {
           `[worker] rescued ${rescued.length} stuck in_progress job(s)`,
         );
       }
+      const rescuedBanks = await rescueStuckTenantBanks(
+        2 * STUCK_JOB_TIMEOUT_MS,
+      );
+      if (rescuedBanks > 0) {
+        console.log(`[worker] rescued ${rescuedBanks} stuck tenant bank(s)`);
+      }
       lastRescue = Date.now();
     }
 
@@ -109,6 +118,28 @@ while (!shuttingDown) {
         `[worker] heartbeat · processed=${totalProcessed} failed=${totalFailed}`,
       );
       lastHeartbeat = Date.now();
+    }
+
+    // Tenant bank tick — runs before the skillboard tick so tenant
+    // banks don't starve when the skillboard queue is busy. One row
+    // per loop; bank pipeline takes a few minutes so this is fine.
+    try {
+      const tenantOutcome = await processOneTenantBankFromQueue();
+      if (tenantOutcome.processed) {
+        if (tenantOutcome.success) {
+          console.log(
+            `[worker] tenant-bank ok id=${tenantOutcome.bankId.slice(0, 8)}`,
+          );
+        } else {
+          console.log(
+            `[worker] tenant-bank failed id=${tenantOutcome.bankId.slice(0, 8)} err=${(tenantOutcome.error ?? "").slice(0, 120)}`,
+          );
+        }
+      }
+    } catch (err) {
+      console.error(
+        `[worker] tenant-bank tick threw: ${err instanceof Error ? err.message.slice(0, 160) : "unknown"}`,
+      );
     }
 
     // Find the oldest pending job across all boards.
