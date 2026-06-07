@@ -24,6 +24,7 @@ import { z } from "zod";
 import { requireTenantMemberApi } from "@/lib/auth/tenant";
 import { db } from "@/lib/db/client";
 import { tenantAssessmentBank } from "@/lib/db/schema";
+import { canSubmitForGeneration } from "@/lib/tenant/billing/balance";
 import { serialiseForTenant } from "@/lib/tenant/serialiser";
 
 const tenantQuestionSchema = z.object({
@@ -56,6 +57,27 @@ export async function POST(req: Request): Promise<NextResponse> {
       );
     }
     return NextResponse.json({ error: "invalid_input" }, { status: 400 });
+  }
+
+  // Payment gate (PRD §1a). Tenant needs ≥1 generation credit AND
+  // ≥5 candidate slots to enqueue. Without either, redirect-style
+  // 402 with the reason so the client lands on /tenant/billing.
+  const gate = await canSubmitForGeneration(auth.session.tenant.id);
+  if (!gate.ok) {
+    return NextResponse.json(
+      serialiseForTenant({
+        error: "payment_required",
+        reason: gate.reason,
+        current_balance: gate.current
+          ? {
+              generation_credits: gate.current.generationCredits,
+              candidate_slots: gate.current.candidateSlots,
+            }
+          : null,
+        next: "/tenant/billing",
+      }),
+      { status: 402 },
+    );
   }
 
   const intakeTextHash = createHash("sha256")

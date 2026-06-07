@@ -1902,6 +1902,194 @@ export type ProverbStage =
 export type Proverb = typeof proverb.$inferSelect;
 export type NewProverb = typeof proverb.$inferInsert;
 
+/* ========================================================================== *
+ *  TENANT BILLING (PRD §1a + §7, Phase 4, migration 0021)                    *
+ * ========================================================================== */
+
+export const tenantSubscriptionTierEnum = pgEnum("tenant_subscription_tier", [
+  "starter",
+  "growth",
+]);
+
+export const tenantSubscriptionStatusEnum = pgEnum(
+  "tenant_subscription_status",
+  ["active", "cancelled", "past_due"],
+);
+
+export const tenantBillingEventTypeEnum = pgEnum("tenant_billing_event_type", [
+  "trial_provisioned",
+  "generation_consumed",
+  "generation_refunded",
+  "slot_consumed",
+  "slot_refunded",
+  "generation_purchase",
+  "slot_purchase",
+  "subscription_renewed",
+  "subscription_cancelled",
+  "footer_addon_purchase",
+  "expiry_credit_aged_out",
+  "expiry_slot_aged_out",
+]);
+
+export const tenantPaymentProcessorEnum = pgEnum("tenant_payment_processor", [
+  "paystack",
+  "stripe",
+  "manual",
+]);
+
+export const tenantBillingBalance = pgTable("tenant_billing_balance", {
+  tenantId: uuid("tenant_id")
+    .primaryKey()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  generationCredits: integer("generation_credits").notNull().default(0),
+  candidateSlots: integer("candidate_slots").notNull().default(0),
+  trialConsumed: boolean("trial_consumed").notNull().default(false),
+  activeSubscriptionId: uuid("active_subscription_id"),
+  footerRemovalActive: boolean("footer_removal_active")
+    .notNull()
+    .default(false),
+  footerRemovalExpiresAt: timestamp("footer_removal_expires_at", {
+    withTimezone: true,
+  }),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const tenantSubscription = pgTable(
+  "tenant_subscription",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    tier: tenantSubscriptionTierEnum("tier").notNull(),
+    status: tenantSubscriptionStatusEnum("status").notNull().default("active"),
+    monthlyAmountLocal: numeric("monthly_amount_local").notNull(),
+    currencyCode: text("currency_code").notNull(),
+    monthlyAmountNgnEquivalent: numeric(
+      "monthly_amount_ngn_equivalent",
+    ).notNull(),
+    generationCreditsPerCycle: integer("generation_credits_per_cycle").notNull(),
+    candidateSlotsPerCycle: integer("candidate_slots_per_cycle").notNull(),
+    paymentProcessor:
+      tenantPaymentProcessorEnum("payment_processor").notNull(),
+    paymentProcessorSubscriptionRef: text("payment_processor_subscription_ref"),
+    startsAt: timestamp("starts_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    nextRenewalAt: timestamp("next_renewal_at", {
+      withTimezone: true,
+    }).notNull(),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("tenant_subscription_tenant_idx").on(t.tenantId),
+    index("tenant_subscription_status_idx").on(t.status),
+  ],
+);
+
+export const fxRateSnapshot = pgTable(
+  "fx_rate_snapshot",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    currencyCode: text("currency_code").notNull(),
+    rateToNgn: numeric("rate_to_ngn").notNull(),
+    snapshotAt: timestamp("snapshot_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    source: text("source").notNull().default("manual"),
+  },
+  (t) => [
+    index("fx_rate_snapshot_currency_idx").on(t.currencyCode, t.snapshotAt),
+  ],
+);
+
+export const tenantBillingLedger = pgTable(
+  "tenant_billing_ledger",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    eventType: tenantBillingEventTypeEnum("event_type").notNull(),
+    generationCreditsDelta: integer("generation_credits_delta")
+      .notNull()
+      .default(0),
+    candidateSlotsDelta: integer("candidate_slots_delta")
+      .notNull()
+      .default(0),
+    relatedAssessmentBankId: uuid("related_assessment_bank_id").references(
+      () => tenantAssessmentBank.id,
+      { onDelete: "set null" },
+    ),
+    relatedCandidateAssessmentId: uuid("related_candidate_assessment_id"),
+    paymentProcessor: tenantPaymentProcessorEnum("payment_processor"),
+    paymentProcessorRef: text("payment_processor_ref"),
+    amountLocal: numeric("amount_local"),
+    currencyCode: text("currency_code"),
+    amountNgnAtTime: numeric("amount_ngn_at_time"),
+    fxRateSnapshotId: uuid("fx_rate_snapshot_id").references(
+      () => fxRateSnapshot.id,
+      { onDelete: "set null" },
+    ),
+    pricingTierAtPurchase: text("pricing_tier_at_purchase"),
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("tenant_billing_ledger_tenant_idx").on(t.tenantId, t.createdAt),
+    index("tenant_billing_ledger_event_type_idx").on(t.eventType),
+  ],
+);
+
+export const systemConfig = pgTable("system_config", {
+  key: text("key").primaryKey(),
+  valueText: text("value_text"),
+  valueTimestamp: timestamp("value_timestamp", { withTimezone: true }),
+  valueNumeric: numeric("value_numeric"),
+  updatedBy: uuid("updated_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const tenantSettings = pgTable("tenant_settings", {
+  tenantId: uuid("tenant_id")
+    .primaryKey()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  defaultLinkExpiryDays: integer("default_link_expiry_days")
+    .notNull()
+    .default(30),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type TenantBillingBalance = typeof tenantBillingBalance.$inferSelect;
+export type NewTenantBillingBalance =
+  typeof tenantBillingBalance.$inferInsert;
+export type TenantSubscription = typeof tenantSubscription.$inferSelect;
+export type NewTenantSubscription = typeof tenantSubscription.$inferInsert;
+export type TenantBillingLedger = typeof tenantBillingLedger.$inferSelect;
+export type NewTenantBillingLedger = typeof tenantBillingLedger.$inferInsert;
+export type FxRateSnapshot = typeof fxRateSnapshot.$inferSelect;
+export type SystemConfigRow = typeof systemConfig.$inferSelect;
+export type TenantSettings = typeof tenantSettings.$inferSelect;
+export type TenantSubscriptionTier =
+  (typeof tenantSubscriptionTierEnum.enumValues)[number];
+export type TenantSubscriptionStatus =
+  (typeof tenantSubscriptionStatusEnum.enumValues)[number];
+export type TenantBillingEventType =
+  (typeof tenantBillingEventTypeEnum.enumValues)[number];
+export type TenantPaymentProcessor =
+  (typeof tenantPaymentProcessorEnum.enumValues)[number];
+
 /**
  * Hardcoded brand defaults so callers that have no row yet still render
  * with ETC's palette and the candidate runner doesn't crash on null.

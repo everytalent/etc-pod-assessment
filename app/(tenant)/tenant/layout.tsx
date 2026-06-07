@@ -11,6 +11,7 @@
 
 import Link from "next/link";
 
+import { BillingBalanceWidget } from "@/components/tenant/BillingBalanceWidget";
 import { getTenantSession } from "@/lib/auth/tenant";
 
 export const dynamic = "force-dynamic";
@@ -41,6 +42,7 @@ export default async function TenantLayout({
             </span>
           </div>
           <div className="flex items-center gap-4 text-xs text-muted-foreground">
+            <BillingBalanceWidget tenantId={session.tenant.id} />
             <span>{session.email}</span>
           </div>
         </div>

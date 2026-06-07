@@ -26,6 +26,10 @@ import {
   tenantAssessmentBank,
   type TenantAssessmentBank,
 } from "@/lib/db/schema";
+import {
+  consumeGenerationCredit,
+  refundGenerationCredit,
+} from "@/lib/tenant/billing/balance";
 
 import {
   buildAssessmentBankForSkillboard,
@@ -96,6 +100,17 @@ export async function processOneTenantBank(
       })
       .where(eq(tenantAssessmentBank.id, bank.id));
 
+    // Consume the generation credit only on success (PRD §7).
+    const consume = await consumeGenerationCredit({
+      tenantId: bank.tenantId,
+      relatedAssessmentBankId: bank.id,
+    });
+    if (!consume.ok) {
+      console.warn(
+        `[tenant-builder] credit-consume after success failed: tenant=${bank.tenantId} reason=${consume.reason}`,
+      );
+    }
+
     return { ok: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown error";
@@ -109,6 +124,11 @@ export async function processOneTenantBank(
         updatedAt: new Date(),
       })
       .where(eq(tenantAssessmentBank.id, bank.id));
+
+    // Refund (no-op if no consume happened earlier — Phase 4 consumes
+    // post-success, so failed banks don't need a refund. Kept as a
+    // safety net in case the policy changes back to consume-on-claim).
+    void refundGenerationCredit;
     return { ok: false, reason: message };
   }
 }
