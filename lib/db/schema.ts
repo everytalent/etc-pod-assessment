@@ -2090,6 +2090,91 @@ export type TenantBillingEventType =
 export type TenantPaymentProcessor =
   (typeof tenantPaymentProcessorEnum.enumValues)[number];
 
+/* ========================================================================== *
+ *  TENANT RESULTS — overrides + IP match (PRD §5 + §5a, migration 0022)      *
+ * ========================================================================== */
+
+export const candidateOverrideReasonEnum = pgEnum(
+  "candidate_override_reason",
+  [
+    "too_harsh",
+    "too_lenient",
+    "missed_context",
+    "cultural_nuance",
+    "translation_issue",
+    "other",
+  ],
+);
+
+export const candidateResponseOverride = pgTable(
+  "candidate_response_override",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    responseId: uuid("response_id")
+      .notNull()
+      .references(() => responses.id, { onDelete: "cascade" }),
+    answerId: uuid("answer_id").references(() => answers.id, {
+      onDelete: "cascade",
+    }),
+    questionId: uuid("question_id")
+      .notNull()
+      .references(() => questions.id, { onDelete: "cascade" }),
+    overriddenByUserId: uuid("overridden_by_user_id")
+      .notNull()
+      .references(() => tenantUsers.id, { onDelete: "restrict" }),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    originalScore: jsonb("original_score").$type<unknown>().notNull().default({}),
+    newScore: jsonb("new_score").$type<unknown>().notNull().default({}),
+    reasonCategory:
+      candidateOverrideReasonEnum("reason_category").notNull(),
+    reasonText: text("reason_text").notNull(),
+    revertedAt: timestamp("reverted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("candidate_response_override_response_idx").on(t.responseId),
+    index("candidate_response_override_question_idx").on(t.questionId),
+    index("candidate_response_override_tenant_idx").on(t.tenantId),
+  ],
+);
+
+export const candidateIpMatch = pgTable(
+  "candidate_ip_match",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantAssessmentBankId: uuid("tenant_assessment_bank_id")
+      .notNull()
+      .references(() => tenantAssessmentBank.id, { onDelete: "cascade" }),
+    responseAId: uuid("response_a_id")
+      .notNull()
+      .references(() => responses.id, { onDelete: "cascade" }),
+    responseBId: uuid("response_b_id")
+      .notNull()
+      .references(() => responses.id, { onDelete: "cascade" }),
+    sharedIpAddress: text("shared_ip_address").notNull(),
+    detectedAt: timestamp("detected_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("candidate_ip_match_bank_idx").on(t.tenantAssessmentBankId),
+    index("candidate_ip_match_response_a_idx").on(t.responseAId),
+    index("candidate_ip_match_response_b_idx").on(t.responseBId),
+  ],
+);
+
+export type CandidateResponseOverride =
+  typeof candidateResponseOverride.$inferSelect;
+export type NewCandidateResponseOverride =
+  typeof candidateResponseOverride.$inferInsert;
+export type CandidateOverrideReason =
+  (typeof candidateOverrideReasonEnum.enumValues)[number];
+export type CandidateIpMatch = typeof candidateIpMatch.$inferSelect;
+
 /**
  * Hardcoded brand defaults so callers that have no row yet still render
  * with ETC's palette and the candidate runner doesn't crash on null.
