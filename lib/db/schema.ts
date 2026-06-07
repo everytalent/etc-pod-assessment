@@ -2175,6 +2175,44 @@ export type CandidateOverrideReason =
   (typeof candidateOverrideReasonEnum.enumValues)[number];
 export type CandidateIpMatch = typeof candidateIpMatch.$inferSelect;
 
+export const candidateReassessment = pgTable(
+  "candidate_reassessment",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantAssessmentBankId: uuid("tenant_assessment_bank_id")
+      .notNull()
+      .references(() => tenantAssessmentBank.id, { onDelete: "cascade" }),
+    originalResponseId: uuid("original_response_id")
+      .notNull()
+      .references(() => responses.id, { onDelete: "cascade" }),
+    reassessmentResponseId: uuid("reassessment_response_id").references(
+      () => responses.id,
+      { onDelete: "set null" },
+    ),
+    triggeredByUserId: uuid("triggered_by_user_id")
+      .notNull()
+      .references(() => tenantUsers.id, { onDelete: "restrict" }),
+    excludedQuestionIds: jsonb("excluded_question_ids")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    triggeredAt: timestamp("triggered_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => [
+    unique("candidate_reassessment_one_per_original_uniq").on(
+      t.originalResponseId,
+    ),
+    index("candidate_reassessment_bank_idx").on(t.tenantAssessmentBankId),
+  ],
+);
+
+export type CandidateReassessment = typeof candidateReassessment.$inferSelect;
+export type NewCandidateReassessment =
+  typeof candidateReassessment.$inferInsert;
+
 /**
  * Hardcoded brand defaults so callers that have no row yet still render
  * with ETC's palette and the candidate runner doesn't crash on null.

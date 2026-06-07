@@ -45,6 +45,36 @@ type Initial = {
 export function CandidateDetailClient({ initial }: { initial: Initial }) {
   const router = useRouter();
   const [openOverrideFor, setOpenOverrideFor] = useState<string | null>(null);
+  const [reassessing, setReassessing] = useState(false);
+  const [reassessError, setReassessError] = useState<string | null>(null);
+
+  const reassess = async () => {
+    if (!confirm("Send the candidate a fresh assessment link? This consumes one slot.")) {
+      return;
+    }
+    setReassessing(true);
+    setReassessError(null);
+    try {
+      const res = await fetch(
+        `/api/v1/tenant/candidate-responses/${initial.response_id}/reassess`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({}),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setReassessError(body.error ?? `${res.status}`);
+        setReassessing(false);
+        return;
+      }
+      router.refresh();
+    } catch {
+      setReassessError("Reassessment failed.");
+      setReassessing(false);
+    }
+  };
 
   const trafficLight =
     initial.integrity_findings.some((f) => f.severity === "critical")
@@ -75,6 +105,33 @@ export function CandidateDetailClient({ initial }: { initial: Initial }) {
         />
         <Stat label="Status" value={initial.status} />
       </section>
+
+      <section className="flex items-center justify-between rounded-2xl border border-border bg-card p-4 text-xs">
+        <div>
+          <p className="font-semibold">Need a second look?</p>
+          <p className="text-muted-foreground">
+            Send the candidate a fresh assessment, excluding the questions
+            they&apos;ve already seen. 1 reassessment per candidate.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={reassess}
+          disabled={reassessing}
+          className="inline-flex h-9 items-center rounded-lg border border-foreground px-3 text-xs font-semibold disabled:opacity-60"
+        >
+          {reassessing ? "Sending..." : "Reassess"}
+        </button>
+      </section>
+      {reassessError && (
+        <p className="rounded-lg border border-destructive bg-destructive/10 p-2 text-xs text-destructive">
+          {reassessError === "reassessment_cap_reached"
+            ? "This candidate has already used their reassessment for this assessment."
+            : reassessError === "insufficient_slots"
+              ? "Not enough candidate slots. Top up to send a reassessment."
+              : reassessError}
+        </p>
+      )}
 
       <section
         className={cn(
