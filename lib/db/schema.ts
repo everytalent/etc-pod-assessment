@@ -1646,3 +1646,42 @@ export type NewTenantUser = typeof tenantUsers.$inferInsert;
 export type TenantPricingTier =
   (typeof tenantPricingTierEnum.enumValues)[number];
 export type TenantRole = (typeof tenantRoleEnum.enumValues)[number];
+
+/**
+ * Tenant assessment branding (PRD §0b, migration 0018). Read by:
+ *   - admin live preview pane
+ *   - <TenantThemeProvider /> on /tenant pages
+ *   - the candidate-facing runner to skin candidate UI
+ *
+ * `onboarding_completed_at IS NULL` gates the first-run carousel.
+ */
+export const tenantAssessmentBranding = pgTable("tenant_assessment_branding", {
+  tenantId: uuid("tenant_id")
+    .primaryKey()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  primaryColor: text("primary_color").notNull().default("#f1b240"),
+  accentColor: text("accent_color").notNull().default("#020301"),
+  logoUrl: text("logo_url"),
+  onboardingCompletedAt: timestamp("onboarding_completed_at", {
+    withTimezone: true,
+  }),
+  updatedByUserId: uuid("updated_by_user_id"),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type TenantAssessmentBranding =
+  typeof tenantAssessmentBranding.$inferSelect;
+export type NewTenantAssessmentBranding =
+  typeof tenantAssessmentBranding.$inferInsert;
+
+/**
+ * Hardcoded brand defaults so callers that have no row yet still render
+ * with ETC's palette and the candidate runner doesn't crash on null.
+ */
+export const TENANT_BRAND_DEFAULTS = {
+  primaryColor: "#f1b240",
+  accentColor: "#020301",
+  logoUrl: null as string | null,
+} as const;
