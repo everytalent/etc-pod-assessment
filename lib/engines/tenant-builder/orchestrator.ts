@@ -26,6 +26,7 @@ import {
   tenantAssessmentBank,
   type TenantAssessmentBank,
 } from "@/lib/db/schema";
+import { notify } from "@/lib/notify";
 import {
   consumeGenerationCredit,
   refundGenerationCredit,
@@ -37,6 +38,7 @@ import {
 } from "./bank-builder";
 import { analyseIntake } from "./intake-analyser";
 import { matchToSkillboard } from "./matcher";
+import { createProvisionalFramework } from "./provisional-author";
 
 const LINK_TTL_DAYS = 30;
 
@@ -53,31 +55,53 @@ export async function processOneTenantBank(
       contextText: bank.contextText,
     });
 
-    // Stage 2: calibrating (match).
+    // Stage 2: calibrating (match → provisional fallback).
     await setStatus(bank.id, "calibrating");
     const verdict = await matchToSkillboard(analysis);
-    if (!verdict.matched) {
-      // Phase 2c will create a provisional framework here. For Phase 2b
-      // we surface a clear failure so admins know what to seed manually.
-      throw new Error(
-        `No matching skillboard for "${analysis.specialisation_guess}" (best confidence ${verdict.confidence.toFixed(2)}). ${verdict.reasoning}`,
-      );
+
+    let resolvedSkillboardId: string;
+    let resolvedSpecialisation: string;
+    let routeTaken: "match" | "provisional";
+
+    if (verdict.matched) {
+      resolvedSkillboardId = verdict.skillboardId;
+      resolvedSpecialisation = verdict.specialisation;
+      routeTaken = "match";
+      await db
+        .update(tenantAssessmentBank)
+        .set({
+          routeTaken: "match",
+          sourceSkillboardId: verdict.skillboardId,
+        })
+        .where(eq(tenantAssessmentBank.id, bank.id));
+    } else {
+      // Provisional path (PRD §2 "calibrating the framework" — internal
+      // routing the tenant never sees).
+      const provisional = await createProvisionalFramework({
+        analysis,
+        tenantId: bank.tenantId,
+        derivedFromIds: verdict.candidates.map((c) => c.id).slice(0, 5),
+      });
+      resolvedSkillboardId = provisional.skillboardId;
+      resolvedSpecialisation = provisional.specialisation;
+      routeTaken = "provisional";
+      await db
+        .update(tenantAssessmentBank)
+        .set({
+          routeTaken: "provisional",
+          provisionalFrameworkId: provisional.skillboardId,
+        })
+        .where(eq(tenantAssessmentBank.id, bank.id));
     }
 
-    await db
-      .update(tenantAssessmentBank)
-      .set({
-        routeTaken: "match",
-        sourceSkillboardId: verdict.skillboardId,
-      })
-      .where(eq(tenantAssessmentBank.id, bank.id));
+    void routeTaken; // logged for completeness; internal-only field
 
     // Stage 3: crafting.
     await setStatus(bank.id, "crafting");
     const build = await buildAssessmentBankForSkillboard({
-      skillboardId: verdict.skillboardId,
+      skillboardId: resolvedSkillboardId,
       tenantBankId: bank.id,
-      specialisation: verdict.specialisation,
+      specialisation: resolvedSpecialisation,
       tenantSuppliedQuestions: bank.tenantSuppliedQuestions,
     });
 
@@ -111,6 +135,23 @@ export async function processOneTenantBank(
       );
     }
 
+    // Email the tenant that their assessment is ready (PRD §3).
+    try {
+      await notify({
+        severity: "info",
+        eventType: "tenant_assessment_ready",
+        payload: {
+          tenant_id: bank.tenantId,
+          bank_id: bank.id,
+          assessment_link_token: build.slug,
+          generated_count: build.generatedCount,
+          tenant_authored_count: build.tenantAuthoredCount,
+        },
+      });
+    } catch {
+      // Don't fail the build if notify is misconfigured.
+    }
+
     return { ok: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown error";
@@ -129,6 +170,20 @@ export async function processOneTenantBank(
     // post-success, so failed banks don't need a refund. Kept as a
     // safety net in case the policy changes back to consume-on-claim).
     void refundGenerationCredit;
+
+    try {
+      await notify({
+        severity: "warn",
+        eventType: "tenant_assessment_failed",
+        payload: {
+          tenant_id: bank.tenantId,
+          bank_id: bank.id,
+          reason: message,
+        },
+      });
+    } catch {
+      // Don't double-fail on notify misconfig.
+    }
     return { ok: false, reason: message };
   }
 }
