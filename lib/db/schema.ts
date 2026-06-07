@@ -14,6 +14,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   text,
@@ -210,6 +211,40 @@ export const finalSourceEnum = pgEnum("final_source", ["ai", "human_override"]);
 export const skillboardCreationPathEnum = pgEnum("skillboard_creation_path", [
   "upload",
   "claude_authored",
+  "tenant_builder",
+]);
+
+/* ---------- Tenant builder enums (PRD 2026-06-02) ---------- */
+
+export const tenantIntakeTypeEnum = pgEnum("tenant_intake_type", [
+  "job_description",
+  "scope_of_work",
+]);
+
+export const tenantIntakeSourceEnum = pgEnum("tenant_intake_source", [
+  "paste",
+  "upload",
+]);
+
+export const tenantQuestionTreatmentEnum = pgEnum("tenant_question_treatment", [
+  "use_as_is",
+  "improve",
+  "algorithm_generated",
+]);
+
+export const tenantAssessmentBankStatusEnum = pgEnum(
+  "tenant_assessment_bank_status",
+  ["queued", "analysing", "calibrating", "crafting", "finalising", "ready", "failed"],
+);
+
+export const tenantAssessmentRouteEnum = pgEnum("tenant_assessment_route", [
+  "match",
+  "provisional",
+  "failed",
+]);
+
+export const tenantDraftReasonEnum = pgEnum("tenant_draft_reason", [
+  "awaiting_payment",
 ]);
 
 /** Per-cell approval state on level_expectations. */
@@ -487,6 +522,26 @@ export const questions = pgTable(
      * validators; null for non-interactive types.
      */
     interactiveConfig: jsonb("interactive_config").$type<unknown>(),
+    /**
+     * Tenant builder provenance (PRD §1, §4). `tenant_authored = true`
+     * when the question came from a tenant Step-2 contribution.
+     * `treatment` selects how the algorithm handled the tenant input:
+     * 'use_as_is' (verbatim), 'improve' (algorithm rewrote it),
+     * 'algorithm_generated' (filled in by the algorithm; default for
+     * non-tenant rows).
+     * `original_text` preserves the tenant's wording when
+     * treatment = 'improve' for the "From you (refined)" tooltip.
+     */
+    tenantAuthored: boolean("tenant_authored").notNull().default(false),
+    treatment: tenantQuestionTreatmentEnum("treatment"),
+    originalText: text("original_text"),
+    /**
+     * Practice questions for the candidate sample assessment. Never
+     * scored, never influence CAT trajectory. Generated alongside the
+     * real bank at finalisation time.
+     */
+    sample: boolean("sample").notNull().default(false),
+    sampleForBankId: uuid("sample_for_bank_id"),
   },
   (t) => [
     index("questions_assessment_id_idx").on(t.assessmentId),
@@ -1077,6 +1132,21 @@ export const skillboards = pgTable("skillboards", {
     .$type<SkillboardFeedbackEntry[]>()
     .notNull()
     .default([]),
+  /**
+   * Tenant builder lineage marker. true = AI-generated for a tenant
+   * submission that didn't match a master library row; NOT a quality
+   * gate (CAT runner and evaluation logic do not branch on this flag).
+   * The Learning Expert queue uses it to find rows for review.
+   */
+  provisional: boolean("provisional").notNull().default(false),
+  /** Source row ids the provisional framework was scaffolded from. */
+  derivedFrom: jsonb("derived_from").$type<string[]>().notNull().default([]),
+  /** Set when provisional = true; null for master library rows. */
+  originatingTenantId: uuid("originating_tenant_id"),
+  /** Stamped when a Learning Expert reviews / refines a provisional row. */
+  lastReviewedByLeAt: timestamp("last_reviewed_by_le_at", {
+    withTimezone: true,
+  }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -1675,6 +1745,127 @@ export type TenantAssessmentBranding =
   typeof tenantAssessmentBranding.$inferSelect;
 export type NewTenantAssessmentBranding =
   typeof tenantAssessmentBranding.$inferInsert;
+
+/* ========================================================================== *
+ *  TENANT ASSESSMENT BANK (PRD §1, §2 — Phase 2, migration 0019)             *
+ * ========================================================================== */
+
+/**
+ * One row per tenant-initiated assessment bank. The whole tenant flow
+ * (analyse → match → generate → mint link) writes to this row across
+ * its four visible stages.
+ *
+ * Internal-only columns (route_taken / source_skillboard_id /
+ * provisional_framework_id) are stripped by lib/tenant/serialiser.ts
+ * before any tenant-facing payload leaves the server.
+ */
+export const tenantAssessmentBank = pgTable(
+  "tenant_assessment_bank",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    createdByUserId: uuid("created_by_user_id")
+      .notNull()
+      .references(() => tenantUsers.id, { onDelete: "restrict" }),
+    intakeType: tenantIntakeTypeEnum("intake_type").notNull(),
+    intakeText: text("intake_text").notNull(),
+    intakeTextHash: text("intake_text_hash").notNull(),
+    intakeSource: tenantIntakeSourceEnum("intake_source")
+      .notNull()
+      .default("paste"),
+    intakeUploadFilename: text("intake_upload_filename"),
+    contextText: text("context_text"),
+    /** Array of { text, treatment, source } objects from Step 2. */
+    tenantSuppliedQuestions: jsonb("tenant_supplied_questions").$type<
+      TenantSuppliedQuestion[]
+    >(),
+    /** Frozen 5-8 question IDs surfaced on the result page. */
+    samplePreviewQuestionIds: jsonb("sample_preview_question_ids")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    routeTaken: tenantAssessmentRouteEnum("route_taken"),
+    sourceSkillboardId: uuid("source_skillboard_id").references(
+      () => skillboards.id,
+      { onDelete: "set null" },
+    ),
+    provisionalFrameworkId: uuid("provisional_framework_id").references(
+      () => skillboards.id,
+      { onDelete: "set null" },
+    ),
+    status: tenantAssessmentBankStatusEnum("status")
+      .notNull()
+      .default("queued"),
+    assessmentLinkToken: text("assessment_link_token").unique(),
+    linkExpiresAt: timestamp("link_expires_at", { withTimezone: true }),
+    costUsd: numeric("cost_usd"),
+    durationMs: integer("duration_ms"),
+    failureReason: text("failure_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("tenant_assessment_bank_tenant_idx").on(t.tenantId),
+    index("tenant_assessment_bank_status_idx").on(t.status),
+    index("tenant_assessment_bank_intake_hash_idx").on(t.intakeTextHash),
+  ],
+);
+
+export type TenantSuppliedQuestion = {
+  text: string;
+  treatment: "use_as_is" | "improve";
+  source: "inline" | "upload";
+};
+
+export const tenantAssessmentDraft = pgTable(
+  "tenant_assessment_draft",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    createdByUserId: uuid("created_by_user_id")
+      .notNull()
+      .references(() => tenantUsers.id, { onDelete: "restrict" }),
+    intakeType: tenantIntakeTypeEnum("intake_type").notNull(),
+    intakeText: text("intake_text").notNull(),
+    contextText: text("context_text"),
+    tenantSuppliedQuestions: jsonb("tenant_supplied_questions").$type<
+      TenantSuppliedQuestion[]
+    >(),
+    reasonForDraft: tenantDraftReasonEnum("reason_for_draft").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("tenant_assessment_draft_tenant_idx").on(t.tenantId),
+    index("tenant_assessment_draft_expires_idx").on(t.expiresAt),
+  ],
+);
+
+export type TenantAssessmentBank = typeof tenantAssessmentBank.$inferSelect;
+export type NewTenantAssessmentBank = typeof tenantAssessmentBank.$inferInsert;
+export type TenantAssessmentDraft = typeof tenantAssessmentDraft.$inferSelect;
+export type NewTenantAssessmentDraft =
+  typeof tenantAssessmentDraft.$inferInsert;
+export type TenantIntakeType =
+  (typeof tenantIntakeTypeEnum.enumValues)[number];
+export type TenantIntakeSource =
+  (typeof tenantIntakeSourceEnum.enumValues)[number];
+export type TenantQuestionTreatment =
+  (typeof tenantQuestionTreatmentEnum.enumValues)[number];
+export type TenantAssessmentBankStatus =
+  (typeof tenantAssessmentBankStatusEnum.enumValues)[number];
+export type TenantAssessmentRoute =
+  (typeof tenantAssessmentRouteEnum.enumValues)[number];
 
 /**
  * Hardcoded brand defaults so callers that have no row yet still render
