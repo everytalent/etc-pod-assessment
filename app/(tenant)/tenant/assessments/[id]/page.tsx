@@ -52,7 +52,7 @@ export default async function AssessmentResultPage({
 
   const brand = await getTenantBrand(session.tenant.id);
   const link = row.assessmentLinkToken
-    ? `https://admin.energytalentco.com/take/${row.assessmentLinkToken}`
+    ? `https://assess.energytalentco.com/take-tenant/${row.assessmentLinkToken}`
     : null;
 
   return (
@@ -81,6 +81,7 @@ export default async function AssessmentResultPage({
               <input
                 readOnly
                 value={link}
+                aria-label="Assessment link"
                 className="h-10 flex-1 rounded-lg border border-input bg-background px-3 font-mono text-xs"
               />
               <a

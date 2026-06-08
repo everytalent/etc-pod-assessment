@@ -48,7 +48,7 @@ export function TenantLoginForm({
   const onSubmit = async ({ email }: Values) => {
     setErrorMessage(null);
     const supabase = createSupabaseBrowserClient();
-    const redirectTo = `https://admin.energytalentco.com/tenant/auth-callback?next=${encodeURIComponent(next)}`;
+    const redirectTo = `https://assess.energytalentco.com/tenant/auth-callback?next=${encodeURIComponent(next)}`;
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: { emailRedirectTo: redirectTo },
