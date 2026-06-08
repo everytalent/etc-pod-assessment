@@ -19,6 +19,6 @@
 -- ============================================================================
 
 ALTER TABLE "skillboards"
-    ADD COLUMN "feedback_notes" jsonb NOT NULL DEFAULT '[]'::jsonb;
+    ADD COLUMN IF NOT EXISTS "feedback_notes" jsonb NOT NULL DEFAULT '[]'::jsonb;
 
 ALTER TYPE "authoring_job_type" ADD VALUE IF NOT EXISTS 'proposal_regeneration';

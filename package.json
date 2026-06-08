@@ -15,7 +15,9 @@
     "db:studio": "dotenv -e .env.local -- drizzle-kit studio",
     "db:seed": "dotenv -e .env.local -- tsx lib/db/seed.ts",
     "worker": "tsx scripts/run-worker.mts",
-    "worker:local": "dotenv -e .env.local -- tsx scripts/run-worker.mts"
+    "worker:local": "dotenv -e .env.local -- tsx scripts/run-worker.mts",
+    "tenant:seed-proverbs": "dotenv -e .env.local -- tsx scripts/seed-proverbs.ts",
+    "tenant:create": "dotenv -e .env.local -- tsx scripts/create-tenant.ts"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
