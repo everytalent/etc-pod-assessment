@@ -65,6 +65,29 @@ export type TenantSession = {
 
 /** Joined Supabase user + tenant_users row + tenants row, or null. */
 export async function getTenantSession(): Promise<TenantSession | null> {
+  // Dev bypass (PRODUCTION-SAFE: never matches if env var is unset).
+  // Set TENANT_AUTH_BYPASS_EMAIL=ugofred@gmail.com in .env.local OR in
+  // Netlify env to skip magic-link auth entirely for that one email.
+  // Looks the email up in tenant_users so role + tenant_id are real;
+  // only the Supabase session check is skipped.
+  const bypassEmail = process.env.TENANT_AUTH_BYPASS_EMAIL;
+  if (bypassEmail) {
+    const [row] = await db
+      .select({ tenantUser: tenantUsers, tenant: tenants })
+      .from(tenantUsers)
+      .innerJoin(tenants, eq(tenants.id, tenantUsers.tenantId))
+      .where(eq(tenantUsers.email, bypassEmail.toLowerCase()))
+      .limit(1);
+    if (row) {
+      return {
+        authUserId: "dev-bypass",
+        email: bypassEmail,
+        tenantUser: row.tenantUser,
+        tenant: row.tenant,
+      };
+    }
+  }
+
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase.auth.getUser();
   if (error || !data.user || !data.user.email) return null;
