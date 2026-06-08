@@ -9,6 +9,7 @@ import { redirect } from "next/navigation";
 import { getTenantSession } from "@/lib/auth/tenant";
 import { getTenantBrand } from "@/lib/tenant/branding";
 import { TenantThemeProvider } from "@/components/tenant/TenantThemeProvider";
+import { OnboardingModal } from "@/components/tenant/OnboardingModal";
 
 export const dynamic = "force-dynamic";
 
@@ -17,9 +18,7 @@ export default async function TenantHomePage() {
   if (!session) redirect("/tenant/login");
 
   const brand = await getTenantBrand(session.tenant.id);
-  if (!brand.onboardingCompletedAt) {
-    redirect("/tenant/assessments/onboarding");
-  }
+  const showOnboarding = !brand.onboardingCompletedAt;
 
   return (
     <TenantThemeProvider brand={brand} className="contents">
@@ -29,6 +28,14 @@ export default async function TenantHomePage() {
         currencyCode={session.tenant.currencyCode}
         pricingTier={session.tenant.pricingTier}
       />
+      {showOnboarding && (
+        <OnboardingModal
+          tenantName={session.tenant.name}
+          initialPrimary={brand.primaryColor}
+          initialAccent={brand.accentColor}
+          initialLogoUrl={brand.logoUrl}
+        />
+      )}
     </TenantThemeProvider>
   );
 }
