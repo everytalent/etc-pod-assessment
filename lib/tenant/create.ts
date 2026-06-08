@@ -42,7 +42,8 @@ export async function createTenant(
     throw new Error(`Unsupported country: ${input.countryCode}`);
   }
 
-  return db.transaction(async (tx) => {
+  // Insert tenant + owner in a transaction so they commit atomically.
+  const { tenantId, ownerUserId } = await db.transaction(async (tx) => {
     const [tenant] = await tx
       .insert(tenants)
       .values({
@@ -62,13 +63,18 @@ export async function createTenant(
       })
       .returning({ id: tenantUsers.id });
 
-    const catalog = getCatalog(country.pricingTier);
-    await provisionTrialBalance({
-      tenantId: tenant.id,
-      generationCredits: catalog.trial.generationCredits,
-      candidateSlots: catalog.trial.candidateSlots,
-    });
-
     return { tenantId: tenant.id, ownerUserId: owner.id };
   });
+
+  // Trial balance lives in a follow-up transaction so it can see the
+  // freshly-committed tenant row. If it fails, the tenant + owner still
+  // exist; provisionTrialBalance is idempotent so a retry is safe.
+  const catalog = getCatalog(country.pricingTier);
+  await provisionTrialBalance({
+    tenantId,
+    generationCredits: catalog.trial.generationCredits,
+    candidateSlots: catalog.trial.candidateSlots,
+  });
+
+  return { tenantId, ownerUserId };
 }
