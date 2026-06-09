@@ -16,10 +16,19 @@ import { requireTenantAdminApi } from "@/lib/auth/tenant";
 import { getTenantBrand, saveTenantBrand } from "@/lib/tenant/branding";
 import { serialiseForTenant } from "@/lib/tenant/serialiser";
 
+const hex = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 const putSchema = z.object({
-  primary_color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
-  accent_color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  primary_color: hex.optional(),
+  accent_color: hex.optional(),
+  primary_text_color: hex.optional(),
   logo_url: z.string().url().nullable().optional(),
+  text_mark: z.string().max(4).nullable().optional(),
+  support_email: z.string().email().max(200).nullable().optional(),
+  company_url: z.string().url().max(300).nullable().optional(),
+  footer_text: z.string().max(200).nullable().optional(),
+  contact_email: z.string().email().max(200).nullable().optional(),
+  contact_phone: z.string().max(40).nullable().optional(),
+  show_powered_by_etc: z.boolean().optional(),
   complete_onboarding: z.boolean().optional(),
 });
 
@@ -28,14 +37,25 @@ export async function GET(): Promise<NextResponse> {
   if (!auth.user) return auth.unauthorized;
 
   const brand = await getTenantBrand(auth.session.tenant.id);
-  return NextResponse.json(
-    serialiseForTenant({
-      primary_color: brand.primaryColor,
-      accent_color: brand.accentColor,
-      logo_url: brand.logoUrl,
-      onboarding_completed_at: brand.onboardingCompletedAt?.toISOString() ?? null,
-    }),
-  );
+  return NextResponse.json(serialiseForTenant(brandToPayload(brand)));
+}
+
+function brandToPayload(brand: Awaited<ReturnType<typeof getTenantBrand>>) {
+  return {
+    primary_color: brand.primaryColor,
+    accent_color: brand.accentColor,
+    primary_text_color: brand.primaryTextColor,
+    logo_url: brand.logoUrl,
+    text_mark: brand.textMark,
+    support_email: brand.supportEmail,
+    company_url: brand.companyUrl,
+    footer_text: brand.footerText,
+    contact_email: brand.contactEmail,
+    contact_phone: brand.contactPhone,
+    show_powered_by_etc: brand.showPoweredByEtc,
+    onboarding_completed_at:
+      brand.onboardingCompletedAt?.toISOString() ?? null,
+  };
 }
 
 export async function PUT(req: Request): Promise<NextResponse> {
@@ -60,7 +80,15 @@ export async function PUT(req: Request): Promise<NextResponse> {
     updatedByUserId: auth.session.tenantUser.id,
     primaryColor: parsed.primary_color,
     accentColor: parsed.accent_color,
+    primaryTextColor: parsed.primary_text_color,
     logoUrl: parsed.logo_url,
+    textMark: parsed.text_mark,
+    supportEmail: parsed.support_email,
+    companyUrl: parsed.company_url,
+    footerText: parsed.footer_text,
+    contactEmail: parsed.contact_email,
+    contactPhone: parsed.contact_phone,
+    showPoweredByEtc: parsed.show_powered_by_etc,
     completeOnboarding: parsed.complete_onboarding,
   });
 
@@ -69,13 +97,6 @@ export async function PUT(req: Request): Promise<NextResponse> {
   }
 
   return NextResponse.json(
-    serialiseForTenant({
-      ok: true,
-      primary_color: result.brand.primaryColor,
-      accent_color: result.brand.accentColor,
-      logo_url: result.brand.logoUrl,
-      onboarding_completed_at:
-        result.brand.onboardingCompletedAt?.toISOString() ?? null,
-    }),
+    serialiseForTenant({ ok: true, ...brandToPayload(result.brand) }),
   );
 }

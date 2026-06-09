@@ -97,7 +97,15 @@ export function OnboardingModal({
                     body: JSON.stringify({
                       primary_color: input.primaryColor,
                       accent_color: input.accentColor,
+                      primary_text_color: input.primaryTextColor,
                       logo_url: input.logoUrl,
+                      text_mark: input.textMark,
+                      support_email: input.supportEmail,
+                      company_url: input.companyUrl,
+                      footer_text: input.footerText,
+                      contact_email: input.contactEmail,
+                      contact_phone: input.contactPhone,
+                      show_powered_by_etc: input.showPoweredByEtc,
                       complete_onboarding: input.completeOnboarding,
                     }),
                   });

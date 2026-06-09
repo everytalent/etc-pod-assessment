@@ -24,7 +24,15 @@ const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 export type TenantBrand = {
   primaryColor: string;
   accentColor: string;
+  primaryTextColor: string;
   logoUrl: string | null;
+  textMark: string | null;
+  supportEmail: string | null;
+  companyUrl: string | null;
+  footerText: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  showPoweredByEtc: boolean;
   onboardingCompletedAt: Date | null;
 };
 
@@ -43,14 +51,30 @@ export async function getTenantBrand(tenantId: string): Promise<TenantBrand> {
     return {
       primaryColor: TENANT_BRAND_DEFAULTS.primaryColor,
       accentColor: TENANT_BRAND_DEFAULTS.accentColor,
+      primaryTextColor: TENANT_BRAND_DEFAULTS.accentColor,
       logoUrl: TENANT_BRAND_DEFAULTS.logoUrl,
+      textMark: null,
+      supportEmail: null,
+      companyUrl: null,
+      footerText: null,
+      contactEmail: null,
+      contactPhone: null,
+      showPoweredByEtc: true,
       onboardingCompletedAt: null,
     };
   }
   return {
     primaryColor: row.primaryColor,
     accentColor: row.accentColor,
+    primaryTextColor: row.primaryTextColor,
     logoUrl: row.logoUrl,
+    textMark: row.textMark,
+    supportEmail: row.supportEmail,
+    companyUrl: row.companyUrl,
+    footerText: row.footerText,
+    contactEmail: row.contactEmail,
+    contactPhone: row.contactPhone,
+    showPoweredByEtc: row.showPoweredByEtc,
     onboardingCompletedAt: row.onboardingCompletedAt,
   };
 }
@@ -60,7 +84,15 @@ export type SaveTenantBrandInput = {
   updatedByUserId: string;
   primaryColor?: string;
   accentColor?: string;
+  primaryTextColor?: string;
   logoUrl?: string | null;
+  textMark?: string | null;
+  supportEmail?: string | null;
+  companyUrl?: string | null;
+  footerText?: string | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+  showPoweredByEtc?: boolean;
   completeOnboarding?: boolean;
 };
 
@@ -84,41 +116,70 @@ export async function saveTenantBrand(
     .where(eq(tenantAssessmentBranding.tenantId, input.tenantId))
     .limit(1);
 
-  const primaryColor =
-    input.primaryColor ??
-    existing?.primaryColor ??
-    TENANT_BRAND_DEFAULTS.primaryColor;
-  const accentColor =
-    input.accentColor ??
-    existing?.accentColor ??
-    TENANT_BRAND_DEFAULTS.accentColor;
-  const logoUrl =
-    input.logoUrl !== undefined ? input.logoUrl : existing?.logoUrl ?? null;
+  const pick = <T,>(incoming: T | undefined, current: T | undefined, fallback: T): T =>
+    incoming !== undefined ? incoming : current ?? fallback;
+  const pickNullable = <T,>(
+    incoming: T | null | undefined,
+    current: T | null | undefined,
+  ): T | null =>
+    incoming !== undefined ? (incoming ?? null) : (current ?? null);
+
+  const primaryColor = pick(
+    input.primaryColor,
+    existing?.primaryColor,
+    TENANT_BRAND_DEFAULTS.primaryColor,
+  );
+  const accentColor = pick(
+    input.accentColor,
+    existing?.accentColor,
+    TENANT_BRAND_DEFAULTS.accentColor,
+  );
+  const primaryTextColor = pick(
+    input.primaryTextColor,
+    existing?.primaryTextColor,
+    TENANT_BRAND_DEFAULTS.accentColor,
+  );
+  const logoUrl = pickNullable(input.logoUrl, existing?.logoUrl);
+  const textMark = pickNullable(input.textMark, existing?.textMark);
+  const supportEmail = pickNullable(input.supportEmail, existing?.supportEmail);
+  const companyUrl = pickNullable(input.companyUrl, existing?.companyUrl);
+  const footerText = pickNullable(input.footerText, existing?.footerText);
+  const contactEmail = pickNullable(input.contactEmail, existing?.contactEmail);
+  const contactPhone = pickNullable(input.contactPhone, existing?.contactPhone);
+  const showPoweredByEtc = pick(
+    input.showPoweredByEtc,
+    existing?.showPoweredByEtc,
+    true,
+  );
   const onboardingCompletedAt = input.completeOnboarding
     ? new Date()
     : existing?.onboardingCompletedAt ?? null;
 
+  const values = {
+    primaryColor,
+    accentColor,
+    primaryTextColor,
+    logoUrl,
+    textMark,
+    supportEmail,
+    companyUrl,
+    footerText,
+    contactEmail,
+    contactPhone,
+    showPoweredByEtc,
+    onboardingCompletedAt,
+    updatedByUserId: input.updatedByUserId,
+  };
+
   if (existing) {
     await db
       .update(tenantAssessmentBranding)
-      .set({
-        primaryColor,
-        accentColor,
-        logoUrl,
-        onboardingCompletedAt,
-        updatedByUserId: input.updatedByUserId,
-        updatedAt: new Date(),
-      })
+      .set({ ...values, updatedAt: new Date() })
       .where(eq(tenantAssessmentBranding.tenantId, input.tenantId));
   } else {
-    await db.insert(tenantAssessmentBranding).values({
-      tenantId: input.tenantId,
-      primaryColor,
-      accentColor,
-      logoUrl,
-      onboardingCompletedAt,
-      updatedByUserId: input.updatedByUserId,
-    });
+    await db
+      .insert(tenantAssessmentBranding)
+      .values({ tenantId: input.tenantId, ...values });
   }
 
   return {
@@ -126,7 +187,15 @@ export async function saveTenantBrand(
     brand: {
       primaryColor,
       accentColor,
+      primaryTextColor,
       logoUrl,
+      textMark,
+      supportEmail,
+      companyUrl,
+      footerText,
+      contactEmail,
+      contactPhone,
+      showPoweredByEtc,
       onboardingCompletedAt,
     },
   };
@@ -147,7 +216,15 @@ export async function getBrandForAssessmentToken(
   return {
     primaryColor: TENANT_BRAND_DEFAULTS.primaryColor,
     accentColor: TENANT_BRAND_DEFAULTS.accentColor,
+    primaryTextColor: TENANT_BRAND_DEFAULTS.accentColor,
     logoUrl: TENANT_BRAND_DEFAULTS.logoUrl,
+    textMark: null,
+    supportEmail: null,
+    companyUrl: null,
+    footerText: null,
+    contactEmail: null,
+    contactPhone: null,
+    showPoweredByEtc: true,
     onboardingCompletedAt: null,
   };
 }

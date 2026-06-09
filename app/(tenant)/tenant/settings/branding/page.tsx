@@ -34,7 +34,15 @@ export default async function TenantSettingsBrandingPage() {
         tenantName={session.tenant.name}
         initialPrimary={brand.primaryColor}
         initialAccent={brand.accentColor}
+        initialPrimaryText={brand.primaryTextColor}
         initialLogoUrl={brand.logoUrl}
+        initialTextMark={brand.textMark}
+        initialSupportEmail={brand.supportEmail}
+        initialCompanyUrl={brand.companyUrl}
+        initialFooterText={brand.footerText}
+        initialContactEmail={brand.contactEmail}
+        initialContactPhone={brand.contactPhone}
+        initialShowPoweredByEtc={brand.showPoweredByEtc}
       />
     </div>
   );
