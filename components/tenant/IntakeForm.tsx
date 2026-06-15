@@ -31,6 +31,7 @@ export function IntakeForm() {
   const [intakeType, setIntakeType] = useState<IntakeType>("job_description");
   const [intakeText, setIntakeText] = useState("");
   const [contextText, setContextText] = useState("");
+  const [wantsOwnQuestions, setWantsOwnQuestions] = useState<boolean | null>(null);
   const [questionsRaw, setQuestionsRaw] = useState("");
   const [batchTreatment, setBatchTreatment] = useState<Treatment>("improve");
   const [submitting, setSubmitting] = useState(false);
@@ -151,46 +152,100 @@ export function IntakeForm() {
       ) : (
         <section className="space-y-5 rounded-2xl border border-border bg-card p-6">
           <header>
-            <h2 className="text-sm font-semibold">Your own questions (optional)</h2>
+            <h2 className="text-sm font-semibold">
+              Do you want to add some questions yourself?
+            </h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              One question per line. The algorithm merges these with what it
-              generates; you can have it use them verbatim or refine them to
-              match the grid.
+              The algorithm generates a full question bank from your role. If
+              you have questions you specifically want candidates to answer,
+              you can add them here.
             </p>
           </header>
 
-          <label className="block">
-            <span className="text-xs font-medium">Treatment for all your questions</span>
-            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          {wantsOwnQuestions === null && (
+            <div className="grid gap-2 sm:grid-cols-2">
               <RadioCard
-                checked={batchTreatment === "use_as_is"}
-                onChange={() => setBatchTreatment("use_as_is")}
-                title="Use as-is"
-                hint="Included verbatim. Text and answer key untouched."
+                checked={false}
+                onChange={() => {
+                  setWantsOwnQuestions(false);
+                  setQuestionsRaw("");
+                }}
+                title="No, the algorithm handles it"
+                hint="Skip ahead and generate the assessment."
               />
               <RadioCard
-                checked={batchTreatment === "improve"}
-                onChange={() => setBatchTreatment("improve")}
-                title="Improve"
-                hint="Algorithm refines wording and calibrates to the grid."
+                checked={false}
+                onChange={() => setWantsOwnQuestions(true)}
+                title="Yes, I have some"
+                hint="Add your questions on the next screen."
               />
             </div>
-          </label>
+          )}
 
-          <label className="block">
-            <span className="text-xs font-medium">Questions, one per line</span>
-            <textarea
-              value={questionsRaw}
-              onChange={(e) => setQuestionsRaw(e.target.value)}
-              rows={10}
-              maxLength={20_000}
-              placeholder="Describe how you would size an inverter for a 10 kWp residential array."
-              className="mt-1 w-full resize-y rounded-lg border border-input bg-background p-3 text-sm font-mono leading-relaxed"
-            />
-            <p className="mt-1 text-[0.65rem] text-muted-foreground">
-              {parsedQuestions.length} parsed
-            </p>
-          </label>
+          {wantsOwnQuestions === true && (
+            <>
+              <label className="block">
+                <span className="text-xs font-medium">
+                  Treatment for all your questions
+                </span>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <RadioCard
+                    checked={batchTreatment === "use_as_is"}
+                    onChange={() => setBatchTreatment("use_as_is")}
+                    title="Use as-is"
+                    hint="Included verbatim. Text and answer key untouched."
+                  />
+                  <RadioCard
+                    checked={batchTreatment === "improve"}
+                    onChange={() => setBatchTreatment("improve")}
+                    title="Improve"
+                    hint="Algorithm refines wording and calibrates to the grid."
+                  />
+                </div>
+              </label>
+
+              <label className="block">
+                <span className="text-xs font-medium">
+                  Questions, one per line
+                </span>
+                <textarea
+                  value={questionsRaw}
+                  onChange={(e) => setQuestionsRaw(e.target.value)}
+                  rows={10}
+                  maxLength={20_000}
+                  placeholder="Describe how you would size an inverter for a 10 kWp residential array."
+                  className="mt-1 w-full resize-y rounded-lg border border-input bg-background p-3 text-sm font-mono leading-relaxed"
+                />
+                <p className="mt-1 text-[0.65rem] text-muted-foreground">
+                  {parsedQuestions.length} parsed
+                </p>
+              </label>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setWantsOwnQuestions(null);
+                  setQuestionsRaw("");
+                }}
+                className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+              >
+                Actually, let the algorithm handle it
+              </button>
+            </>
+          )}
+
+          {wantsOwnQuestions === false && (
+            <div className="rounded-xl border border-border bg-muted/30 p-4 text-xs text-muted-foreground">
+              The algorithm will generate the full question bank.{" "}
+              <button
+                type="button"
+                onClick={() => setWantsOwnQuestions(true)}
+                className="underline-offset-4 hover:text-foreground hover:underline"
+              >
+                Change my mind
+              </button>
+            </div>
+          )}
 
           {error && (
             <p className="rounded-lg border border-destructive bg-destructive/10 p-2 text-xs text-destructive">
@@ -206,27 +261,14 @@ export function IntakeForm() {
             >
               Back
             </button>
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setQuestionsRaw("");
-                  void submit();
-                }}
-                disabled={!canSubmit}
-                className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline disabled:opacity-50"
-              >
-                Skip this step
-              </button>
-              <button
-                type="button"
-                onClick={submit}
-                disabled={!canSubmit}
-                className="inline-flex h-11 items-center rounded-xl bg-foreground px-5 text-sm font-semibold text-background disabled:opacity-50"
-              >
-                {submitting ? "Submitting..." : "Generate assessment"}
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={!canSubmit || wantsOwnQuestions === null}
+              className="inline-flex h-11 items-center rounded-xl bg-foreground px-5 text-sm font-semibold text-background disabled:opacity-50"
+            >
+              {submitting ? "Submitting..." : "Generate assessment"}
+            </button>
           </div>
         </section>
       )}

@@ -25,6 +25,7 @@ import { requireTenantMemberApi } from "@/lib/auth/tenant";
 import { db } from "@/lib/db/client";
 import { tenantAssessmentBank } from "@/lib/db/schema";
 import { canSubmitForGeneration } from "@/lib/tenant/billing/balance";
+import { sanitiseUserText } from "@/lib/tenant/sanitise";
 import { serialiseForTenant } from "@/lib/tenant/serialiser";
 
 const tenantQuestionSchema = z.object({
@@ -35,11 +36,23 @@ const tenantQuestionSchema = z.object({
 
 const inputSchema = z.object({
   intake_type: z.enum(["job_description", "scope_of_work"]),
-  intake_text: z.string().min(100).max(50_000),
-  context_text: z.string().max(5000).nullable().optional(),
+  intake_text: z.string().min(100).max(50_000).transform(sanitiseUserText),
+  context_text: z
+    .string()
+    .max(5000)
+    .nullable()
+    .optional()
+    .transform((v) => (v == null ? v : sanitiseUserText(v))),
   intake_source: z.enum(["paste", "upload"]).default("paste"),
   intake_upload_filename: z.string().max(200).nullable().optional(),
-  tenant_supplied_questions: z.array(tenantQuestionSchema).max(100).optional(),
+  tenant_supplied_questions: z
+    .array(
+      tenantQuestionSchema.extend({
+        text: z.string().min(10).max(1000).transform(sanitiseUserText),
+      }),
+    )
+    .max(100)
+    .optional(),
 });
 
 export async function POST(req: Request): Promise<NextResponse> {
