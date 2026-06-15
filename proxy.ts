@@ -22,6 +22,7 @@ import { updateSession } from "@/lib/supabase/middleware";
 const PUBLIC_ADMIN_PATHS = new Set<string>([
   "/admin/login",
   "/admin/auth-callback",
+  "/admin/verify-otp",
 ]);
 
 const ADMIN_HOSTS = new Set<string>([
