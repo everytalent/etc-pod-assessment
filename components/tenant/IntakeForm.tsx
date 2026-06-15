@@ -18,12 +18,52 @@
  */
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
 type IntakeType = "job_description" | "scope_of_work";
 type Treatment = "use_as_is" | "improve";
+
+const DRAFT_KEY = "tenant-intake-draft-v1";
+
+type Draft = {
+  intakeType: IntakeType;
+  intakeText: string;
+  contextText: string;
+  wantsOwnQuestions: boolean | null;
+  questionsRaw: string;
+  batchTreatment: Treatment;
+};
+
+function readDraft(): Draft | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(DRAFT_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as Draft;
+  } catch {
+    return null;
+  }
+}
+
+function writeDraft(draft: Draft): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  } catch {
+    // Storage full / private mode — ignore.
+  }
+}
+
+function clearDraft(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(DRAFT_KEY);
+  } catch {
+    // ignore
+  }
+}
 
 export function IntakeForm() {
   const router = useRouter();
@@ -36,6 +76,38 @@ export function IntakeForm() {
   const [batchTreatment, setBatchTreatment] = useState<Treatment>("improve");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [restoredFromDraft, setRestoredFromDraft] = useState(false);
+
+  useEffect(() => {
+    const draft = readDraft();
+    if (!draft) return;
+    setIntakeType(draft.intakeType);
+    setIntakeText(draft.intakeText);
+    setContextText(draft.contextText);
+    setWantsOwnQuestions(draft.wantsOwnQuestions);
+    setQuestionsRaw(draft.questionsRaw);
+    setBatchTreatment(draft.batchTreatment);
+    setRestoredFromDraft(true);
+  }, []);
+
+  useEffect(() => {
+    if (intakeText.trim().length < 20) return;
+    writeDraft({
+      intakeType,
+      intakeText,
+      contextText,
+      wantsOwnQuestions,
+      questionsRaw,
+      batchTreatment,
+    });
+  }, [
+    intakeType,
+    intakeText,
+    contextText,
+    wantsOwnQuestions,
+    questionsRaw,
+    batchTreatment,
+  ]);
 
   const intakeLabel =
     intakeType === "job_description"
@@ -81,11 +153,40 @@ export function IntakeForm() {
       return;
     }
     const data = await res.json();
+    clearDraft();
     router.push(`/tenant/assessments/${data.id}/waiting`);
+  };
+
+  const discardDraft = () => {
+    clearDraft();
+    setIntakeType("job_description");
+    setIntakeText("");
+    setContextText("");
+    setWantsOwnQuestions(null);
+    setQuestionsRaw("");
+    setBatchTreatment("improve");
+    setStep(1);
+    setRestoredFromDraft(false);
   };
 
   return (
     <div className="space-y-6">
+      {restoredFromDraft && (
+        <div className="flex items-start justify-between gap-3 rounded-2xl border border-foreground/20 bg-foreground/5 p-4 text-xs">
+          <p>
+            <span className="font-semibold">We saved what you had.</span> Your
+            previous draft is restored below — pick up where you left off, or
+            start over.
+          </p>
+          <button
+            type="button"
+            onClick={discardDraft}
+            className="shrink-0 rounded-lg border border-border bg-background px-3 py-1.5 font-medium hover:border-etc-marigold"
+          >
+            Start over
+          </button>
+        </div>
+      )}
       <Stepper current={step} />
 
       {step === 1 ? (
