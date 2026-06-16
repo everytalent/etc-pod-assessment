@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 
 type IntakeType = "job_description" | "scope_of_work";
 type Treatment = "use_as_is" | "improve";
+type IntakeMode = "paste" | "upload" | "url";
 
 const DRAFT_KEY = "tenant-intake-draft-v1";
 
@@ -77,6 +78,11 @@ export function IntakeForm() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [restoredFromDraft, setRestoredFromDraft] = useState(false);
+  const [intakeMode, setIntakeMode] = useState<IntakeMode>("paste");
+  const [sourceLabel, setSourceLabel] = useState<string | null>(null);
+  const [urlInput, setUrlInput] = useState("");
+  const [extracting, setExtracting] = useState(false);
+  const [extractError, setExtractError] = useState<string | null>(null);
 
   useEffect(() => {
     const draft = readDraft();
@@ -167,6 +173,66 @@ export function IntakeForm() {
     setBatchTreatment("improve");
     setStep(1);
     setRestoredFromDraft(false);
+    setIntakeMode("paste");
+    setSourceLabel(null);
+    setUrlInput("");
+    setExtractError(null);
+  };
+
+  const extractFromFile = async (file: File) => {
+    setExtractError(null);
+    setExtracting(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/v1/tenant/intake-extract", {
+        method: "POST",
+        body: form,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setExtractError(humaniseExtractError(data?.error, file.name));
+        return;
+      }
+      setIntakeText(data.text);
+      setSourceLabel(data.source_label ?? file.name);
+    } catch (err) {
+      setExtractError(
+        err instanceof Error ? err.message : "Could not read the file.",
+      );
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  const extractFromUrl = async () => {
+    const trimmed = urlInput.trim();
+    if (!trimmed) {
+      setExtractError("Paste a link to fetch.");
+      return;
+    }
+    setExtractError(null);
+    setExtracting(true);
+    try {
+      const res = await fetch("/api/v1/tenant/intake-extract", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: trimmed }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setExtractError(humaniseExtractError(data?.error, trimmed));
+        return;
+      }
+      setIntakeText(data.text);
+      setSourceLabel(data.source_label ?? trimmed);
+    } catch (err) {
+      setExtractError(
+        err instanceof Error ? err.message : "Could not fetch that link.",
+      );
+    } finally {
+      setExtracting(false);
+    }
   };
 
   return (
@@ -209,21 +275,105 @@ export function IntakeForm() {
             </div>
           </fieldset>
 
-          <label className="block">
-            <span className="text-xs font-medium">{intakeLabel}</span>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs font-medium">{intakeLabel}</span>
+              <div className="inline-flex rounded-lg border border-border bg-background p-0.5 text-[0.7rem]">
+                <ModeButton
+                  active={intakeMode === "paste"}
+                  onClick={() => setIntakeMode("paste")}
+                >
+                  Paste
+                </ModeButton>
+                <ModeButton
+                  active={intakeMode === "upload"}
+                  onClick={() => setIntakeMode("upload")}
+                >
+                  Upload file
+                </ModeButton>
+                <ModeButton
+                  active={intakeMode === "url"}
+                  onClick={() => setIntakeMode("url")}
+                >
+                  From link
+                </ModeButton>
+              </div>
+            </div>
+
+            {intakeMode === "upload" && (
+              <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4 text-xs">
+                <input
+                  type="file"
+                  aria-label="Upload job description or scope of work"
+                  accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void extractFromFile(file);
+                    e.target.value = "";
+                  }}
+                  disabled={extracting}
+                  className="text-xs"
+                />
+                <p className="mt-2 text-muted-foreground">
+                  PDF, DOCX, or TXT. Up to 5MB.
+                </p>
+              </div>
+            )}
+
+            {intakeMode === "url" && (
+              <div className="flex gap-2 rounded-lg border border-dashed border-border bg-muted/30 p-3">
+                <input
+                  type="url"
+                  value={urlInput}
+                  onChange={(e) => setUrlInput(e.target.value)}
+                  placeholder="https://company.com/careers/role"
+                  disabled={extracting}
+                  className="h-10 flex-1 rounded-lg border border-input bg-background px-3 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => void extractFromUrl()}
+                  disabled={extracting || !urlInput.trim()}
+                  className="inline-flex h-10 shrink-0 items-center rounded-lg bg-foreground px-4 text-xs font-semibold text-background disabled:opacity-50"
+                >
+                  {extracting ? "Fetching..." : "Fetch text"}
+                </button>
+              </div>
+            )}
+
+            {extractError && (
+              <p className="rounded-lg border border-destructive bg-destructive/10 p-2 text-[0.7rem] text-destructive">
+                {extractError}
+              </p>
+            )}
+
+            {sourceLabel && intakeMode !== "paste" && (
+              <p className="text-[0.7rem] text-muted-foreground">
+                Loaded from <span className="font-medium text-foreground">{sourceLabel}</span>.
+                Review the extracted text below and edit if needed.
+              </p>
+            )}
+
             <textarea
               value={intakeText}
-              onChange={(e) => setIntakeText(e.target.value)}
+              onChange={(e) => {
+                setIntakeText(e.target.value);
+                setSourceLabel(null);
+              }}
               rows={12}
               maxLength={50_000}
-              className="mt-1 w-full resize-y rounded-lg border border-input bg-background p-3 text-sm leading-relaxed"
-              placeholder="Paste the role description here. More detail = sharper assessment."
+              className="w-full resize-y rounded-lg border border-input bg-background p-3 text-sm leading-relaxed"
+              placeholder={
+                intakeMode === "paste"
+                  ? "Paste the role description here. More detail = sharper assessment."
+                  : "Extracted text will appear here. You can edit before continuing."
+              }
             />
-            <p className="mt-1 text-[0.65rem] text-muted-foreground">
+            <p className="text-[0.65rem] text-muted-foreground">
               {intakeText.length.toLocaleString()} / 50,000 characters
               {intakeText.trim().length < 100 ? " (need at least 100)" : ""}
             </p>
-          </label>
+          </div>
 
           <label className="block">
             <span className="text-xs font-medium">
@@ -449,6 +599,58 @@ function RadioCard({
       <p className="mt-1 text-[0.7rem] text-muted-foreground">{hint}</p>
     </button>
   );
+}
+
+function ModeButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "rounded-md px-3 py-1.5 font-medium transition-colors",
+        active
+          ? "bg-foreground text-background"
+          : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function humaniseExtractError(code: unknown, label: string): string {
+  switch (code) {
+    case "missing_file":
+      return "No file was selected.";
+    case "file_too_large":
+    case "remote_too_large":
+      return "That file is over the 5MB limit.";
+    case "unsupported_file_type":
+      return "We can read PDF, DOCX, and TXT files. Try one of those.";
+    case "unsupported_remote_type":
+      return "We couldn't read that link as a job posting. Paste the text instead.";
+    case "extraction_failed":
+      return "We couldn't read that file. Try a different format or paste the text.";
+    case "extracted_text_too_short":
+      return "We extracted very little text from that source — paste the role manually for a better assessment.";
+    case "fetch_failed":
+      return "We couldn't reach that link. Check the URL or paste the text instead.";
+    case "blocked_host":
+    case "unsupported_protocol":
+      return "That link isn't supported. Use a public https URL.";
+    case "invalid_url":
+      return `"${label}" doesn't look like a valid URL.`;
+    default:
+      return "We couldn't process that source. Paste the text instead.";
+  }
 }
 
 function parseQuestions(raw: string): string[] {
