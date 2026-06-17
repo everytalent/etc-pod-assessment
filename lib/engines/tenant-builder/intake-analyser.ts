@@ -33,10 +33,11 @@ export const intakeAnalysisSchema = z.object({
   seniority_hint: z.enum(["junior", "mid", "senior", "mixed"]).nullable(),
   /** Free-form list — what the person actually does day-to-day. */
   core_skills: z.array(z.string().min(2).max(120)).min(1).max(20),
-  /** Named tools / standards / brands the role uses. */
-  tools: z.array(z.string().min(2).max(80)).max(20),
+  /** Named tools / standards / brands the role uses. Opus sometimes
+   *  omits this for roles with no obvious tooling — default to empty. */
+  tools: z.array(z.string().min(2).max(80)).max(20).default([]),
   /** Region cues lifted from the text (locations, regs, languages). */
-  region_cues: z.array(z.string().min(2).max(80)).max(10),
+  region_cues: z.array(z.string().min(2).max(80)).max(10).default([]),
   /** Project-specific extras — only meaningful for SOW intake. */
   project_scope: z
     .object({
@@ -44,11 +45,18 @@ export const intakeAnalysisSchema = z.object({
       team_size: z.number().int().min(1).max(1000).nullable(),
       key_deliverables: z.array(z.string().min(3).max(200)).max(15),
     })
-    .nullable(),
+    .nullable()
+    .default(null),
   /** Quality signal the rest of the pipeline can act on. */
-  signal_quality: z.enum(["thin", "ok", "rich"]),
-  /** One-line summary for admin logs. */
-  summary: z.string().min(20).max(400),
+  signal_quality: z.enum(["thin", "ok", "rich"]).default("ok"),
+  /** One-line summary for admin logs. Defaulted because Opus can omit
+   *  it on terse inputs and the rest of the pipeline tolerates a
+   *  generic fallback better than a hard fail. */
+  summary: z
+    .string()
+    .min(20)
+    .max(400)
+    .default("Tenant-submitted intake analysed by the algorithm."),
 });
 
 export type IntakeAnalysis = z.infer<typeof intakeAnalysisSchema>;
