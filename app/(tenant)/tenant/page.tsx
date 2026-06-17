@@ -16,6 +16,7 @@ import { getTenantSession } from "@/lib/auth/tenant";
 import { db } from "@/lib/db/client";
 import { tenantAssessmentBank } from "@/lib/db/schema";
 import { getTenantBrand } from "@/lib/tenant/branding";
+import { FailedBankActions } from "@/components/tenant/FailedBankActions";
 import { TenantThemeProvider } from "@/components/tenant/TenantThemeProvider";
 import { OnboardingModal } from "@/components/tenant/OnboardingModal";
 
@@ -222,19 +223,19 @@ function TenantHomeInner({
 function BankRowLink({ bank }: { bank: BankRow }) {
   const href = bankHref(bank);
   return (
-    <Link
-      href={href}
-      className="flex items-center justify-between gap-4 p-5 transition-colors hover:bg-muted/40"
-    >
-      <div className="min-w-0 flex-1">
+    <div className="flex items-center justify-between gap-4 p-5 transition-colors hover:bg-muted/40">
+      <Link href={href} className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{intakeSnippet(bank.intakeText)}</p>
         <p className="mt-1 text-[0.7rem] text-muted-foreground">
           {intakeTypeLabel(bank.intakeType)} ·{" "}
           {formatTimestamp(bank.createdAt)}
         </p>
+      </Link>
+      <div className="flex shrink-0 items-center gap-3">
+        <StatusPill status={bank.status} />
+        {bank.status === "failed" && <FailedBankActions bankId={bank.id} />}
       </div>
-      <StatusPill status={bank.status} />
-    </Link>
+    </div>
   );
 }
 

@@ -90,3 +90,55 @@ export async function GET(
     }),
   );
 }
+
+/**
+ * DELETE /api/v1/tenant/assessment-banks/:id
+ *
+ * Removes a bank row entirely. Restricted to banks in a terminal
+ * non-success state (failed) — refusing to delete in-flight or
+ * completed banks prevents accidental loss of a ready assessment.
+ */
+export async function DELETE(
+  _req: Request,
+  context: { params: Promise<{ id: string }> },
+): Promise<NextResponse> {
+  const auth = await requireTenantMemberApi();
+  if (!auth.user) return auth.unauthorized;
+
+  const { id } = await context.params;
+
+  const [row] = await db
+    .select({
+      id: tenantAssessmentBank.id,
+      status: tenantAssessmentBank.status,
+    })
+    .from(tenantAssessmentBank)
+    .where(
+      and(
+        eq(tenantAssessmentBank.id, id),
+        eq(tenantAssessmentBank.tenantId, auth.session.tenant.id),
+      ),
+    )
+    .limit(1);
+
+  if (!row) {
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+  if (row.status !== "failed") {
+    return NextResponse.json(
+      { error: "only_failed_banks_can_be_deleted", current_status: row.status },
+      { status: 409 },
+    );
+  }
+
+  await db
+    .delete(tenantAssessmentBank)
+    .where(
+      and(
+        eq(tenantAssessmentBank.id, id),
+        eq(tenantAssessmentBank.tenantId, auth.session.tenant.id),
+      ),
+    );
+
+  return NextResponse.json({ ok: true });
+}
