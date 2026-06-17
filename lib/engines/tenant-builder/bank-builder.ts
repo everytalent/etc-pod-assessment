@@ -107,34 +107,64 @@ export async function buildAssessmentBankForSkillboard(args: {
     .innerJoin(skills, eq(skills.id, tasks.skillId))
     .where(eq(skills.skillboardId, args.skillboardId));
 
-  let generatedCount = 0;
-  let orderIndex = 0;
-
+  // Build the full list of cells to seed, then run them in bounded
+  // parallel batches. Sequential seeding (band × task = 50-100 Opus
+  // calls × ~25 s each) blows past Netlify's 15-minute function
+  // budget, the worker dies mid-loop, the rescue kicks the bank back
+  // to queued, the orchestrator restarts from scratch, and the cycle
+  // never converges. Concurrency cap below stays well clear of
+  // Anthropic's rate limits while cutting wall-clock by ~6-8x.
+  type CellSpec = {
+    band: SeniorityBand;
+    level: PerformanceLevel;
+    task: { id: string; name: string; skillName: string };
+  };
+  const cellSpecs: CellSpec[] = [];
   for (const band of BANDS) {
     const level = LEVEL_BY_BAND[band];
     for (const task of taskRows) {
-      try {
-        const seeded = await seedOneCellInline({
+      cellSpecs.push({ band, level, task });
+    }
+  }
+
+  const CONCURRENCY = 8;
+  let generatedCount = 0;
+  // Reserve ranges of orderIndex per cell so parallel inserts don't
+  // collide. Worst case each cell emits ~3 questions; reserve 8 slots
+  // per cell as a comfortable upper bound.
+  const ORDER_SLOTS_PER_CELL = 8;
+
+  for (let i = 0; i < cellSpecs.length; i += CONCURRENCY) {
+    const batch = cellSpecs.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(
+      batch.map((spec, idxInBatch) =>
+        seedOneCellInline({
           specialisation: args.specialisation,
-          band,
-          level,
-          skillName: task.skillName,
-          taskName: task.name,
-          taskId: task.id,
+          band: spec.band,
+          level: spec.level,
+          skillName: spec.task.skillName,
+          taskName: spec.task.name,
+          taskId: spec.task.id,
           assessmentId: assessment.id,
-          startOrderIndex: orderIndex,
-        });
-        generatedCount += seeded.count;
-        orderIndex += seeded.count;
-      } catch (err) {
+          startOrderIndex: (i + idxInBatch) * ORDER_SLOTS_PER_CELL,
+        }),
+      ),
+    );
+    for (let j = 0; j < results.length; j++) {
+      const r = results[j];
+      if (r.status === "fulfilled") {
+        generatedCount += r.value.count;
+      } else {
+        const spec = batch[j];
         console.warn(
-          `[tenant-builder] cell seed failed band=${band} task=${task.id}: ${err instanceof Error ? err.message : "unknown"}`,
+          `[tenant-builder] cell seed failed band=${spec.band} task=${spec.task.id}: ${r.reason instanceof Error ? r.reason.message : "unknown"}`,
         );
-        // Skip this cell, keep going. We'd rather ship a leaner bank
-        // than fail the whole job on one Opus hiccup.
       }
     }
   }
+
+  // Tenant questions append after the reserved cell range.
+  let orderIndex = cellSpecs.length * ORDER_SLOTS_PER_CELL;
 
   // Step 3: merge tenant-supplied questions.
   let tenantAuthoredCount = 0;
