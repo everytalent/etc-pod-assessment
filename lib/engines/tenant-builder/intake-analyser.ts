@@ -29,8 +29,43 @@ import { sanitiseUserText } from "@/lib/tenant/sanitise";
 export const intakeAnalysisSchema = z.object({
   /** Best-guess role label the assessment should anchor against. */
   specialisation_guess: z.string().min(3).max(120),
-  /** Coarse seniority hint; null when input is genuinely ambiguous. */
-  seniority_hint: z.enum(["junior", "mid", "senior", "mixed"]).nullable(),
+  /** Coarse seniority hint; null when input is genuinely ambiguous.
+   *  Opus occasionally returns values outside the canonical set
+   *  (lead/principal/staff/entry etc.); preprocess maps common
+   *  variants and falls back to null rather than failing the whole
+   *  generation. */
+  seniority_hint: z
+    .preprocess((value) => {
+      if (value == null) return null;
+      if (typeof value !== "string") return null;
+      const normalised = value.toLowerCase().trim();
+      if (!normalised) return null;
+      if (["junior", "mid", "senior", "mixed"].includes(normalised)) {
+        return normalised;
+      }
+      if (["entry", "graduate", "trainee", "intern", "associate"].includes(normalised)) {
+        return "junior";
+      }
+      if (["middle", "intermediate", "mid-level", "midlevel"].includes(normalised)) {
+        return "mid";
+      }
+      if (
+        [
+          "lead",
+          "principal",
+          "staff",
+          "expert",
+          "specialist",
+          "senior+",
+          "head",
+          "director",
+        ].includes(normalised)
+      ) {
+        return "senior";
+      }
+      return null;
+    }, z.enum(["junior", "mid", "senior", "mixed"]).nullable())
+    .default(null),
   /** Free-form list — what the person actually does day-to-day. */
   core_skills: z.array(z.string().min(2).max(120)).min(1).max(20),
   /** Named tools / standards / brands the role uses. Opus sometimes

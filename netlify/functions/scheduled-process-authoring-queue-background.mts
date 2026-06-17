@@ -39,8 +39,17 @@ import {
 
 /** Stop processing new jobs when we have this much wall-clock left. */
 const SOFT_BUDGET_MS = 13 * 60 * 1000; // 13 of 15 min
-/** Reset any in_progress row older than this back to pending. */
+/** Reset any skillboard authoring job older than this back to pending.
+ *  Authoring jobs are small (single Opus call) so a tight rescue is
+ *  fine and keeps the per-board queue responsive. */
 const STUCK_JOB_TIMEOUT_MS = 5 * 60 * 1000;
+/** Reset any in-flight tenant bank older than this back to queued.
+ *  Tenant generation involves many sequential Opus calls (intake
+ *  analysis, framework match/author, 15 question cells) and can
+ *  legitimately take 10-15 minutes end-to-end. Use a much larger
+ *  threshold so a healthy long-running job isn't mistaken for a hang
+ *  and restarted, which would otherwise loop forever. */
+const TENANT_STUCK_BANK_TIMEOUT_MS = 25 * 60 * 1000;
 /** Safety cap on jobs per tick (1000 hard limit elsewhere; this is tighter). */
 const MAX_JOBS_PER_TICK = 200;
 
@@ -139,7 +148,7 @@ export default async function handler() {
   // here means the same deploy that ships a fix also processes the
   // queue with that fix.
   try {
-    const tenantRescued = await rescueStuckTenantBanks(STUCK_JOB_TIMEOUT_MS);
+    const tenantRescued = await rescueStuckTenantBanks(TENANT_STUCK_BANK_TIMEOUT_MS);
     if (tenantRescued > 0) {
       console.log(
         `[bg-worker] reset ${tenantRescued} stuck tenant bank(s) to queued`,
