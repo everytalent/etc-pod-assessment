@@ -21,6 +21,8 @@
  * Phase 2b, so this still produces a usable bank.
  */
 
+import { randomUUID } from "node:crypto";
+
 import { db } from "@/lib/db/client";
 import {
   skillboards,
@@ -107,10 +109,24 @@ export async function createProvisionalFramework(args: {
   const brief = synthesiseBrief(args.analysis);
   const roleFamily = inferRoleFamily(args.analysis);
 
+  // skillboards.specialisation is a UNIQUE column. The matcher might
+  // reject an existing master board as a poor fit AND we'd still end
+  // up colliding on insert when we try to author the provisional under
+  // the same name. Scope provisional names by tenant + a short random
+  // tag so multiple tenants, master boards, and retries by the same
+  // tenant for the same role can coexist without stomping on each
+  // other. The brief / specialisation_guess inside the framework
+  // structure preserves the human-readable name; this suffix is purely
+  // a uniqueness key.
+  const tenantSuffix = args.tenantId.split("-")[0];
+  const randomTag = randomUUID().slice(0, 8);
+  const baseSpecialisation = args.analysis.specialisation_guess;
+  const provisionalSpecialisation = `${baseSpecialisation} (tenant:${tenantSuffix} · ${randomTag})`;
+
   const [board] = await db
     .insert(skillboards)
     .values({
-      specialisation: args.analysis.specialisation_guess,
+      specialisation: provisionalSpecialisation,
       description: args.analysis.summary,
       creationPath: "tenant_builder",
       roleFamily,
