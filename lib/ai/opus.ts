@@ -23,6 +23,7 @@ import { and, eq, gte, sum } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { aiSpendLedger, type AiSpendPurpose } from "@/lib/db/schema";
 import { notify } from "@/lib/notify";
+import { asciiSafeJsonStringify } from "@/lib/tenant/sanitise";
 
 import { costUsdX10000 } from "./pricing";
 
@@ -178,20 +179,7 @@ export async function callOpusRaw(args: OpusCallArgs): Promise<OpusCallResult> {
   if (args.system) body.system = args.system;
   if (args.tools && args.tools.length > 0) body.tools = args.tools;
 
-  // Belt-and-suspenders: Undici (Node's fetch) treats the body string
-  // as a ByteString in some code paths and rejects U+2028 / U+2029
-  // and other non-Latin-1 characters before encoding. Escape every
-  // non-ASCII codepoint in the final body string to \uXXXX sequences
-  // so the bytes on the wire are pure ASCII. JSON parsers reconstruct
-  // the same logical string on the other side.
-  const escapeNonAscii = new RegExp(
-    "[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F-\\uFFFF]",
-    "g",
-  );
-  const bodyString = JSON.stringify(body).replace(
-    escapeNonAscii,
-    (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"),
-  );
+  const bodyString = asciiSafeJsonStringify(body);
 
   // Retry once on transient errors (5xx, 429, network failures).
   // Anthropic occasionally returns 529 "overloaded" — same pattern.

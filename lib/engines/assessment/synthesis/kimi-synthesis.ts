@@ -23,6 +23,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "@/lib/db/client";
+import { asciiSafeJsonStringify } from "@/lib/tenant/sanitise";
 import {
   aiScores,
   aiSpendLedger,
@@ -325,7 +326,7 @@ async function callKimi(
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({
+    body: asciiSafeJsonStringify({
       model: KIMI_MODEL,
       temperature: 0.2,
       max_tokens: maxTokens,

@@ -326,23 +326,46 @@ export function IntakeForm() {
             )}
 
             {intakeMode === "url" && (
-              <div className="flex gap-2 rounded-lg border border-dashed border-border bg-muted/30 p-3">
-                <input
-                  type="url"
-                  value={urlInput}
-                  onChange={(e) => setUrlInput(e.target.value)}
-                  placeholder="https://company.com/careers/role"
-                  disabled={extracting}
-                  className="h-10 flex-1 rounded-lg border border-input bg-background px-3 text-sm"
-                />
-                <button
-                  type="button"
-                  onClick={() => void extractFromUrl()}
-                  disabled={extracting || !urlInput.trim()}
-                  className="inline-flex h-10 shrink-0 items-center rounded-lg bg-foreground px-4 text-xs font-semibold text-background disabled:opacity-50"
-                >
-                  {extracting ? "Fetching..." : "Fetch text"}
-                </button>
+              <div className="space-y-3 rounded-lg border border-dashed border-border bg-muted/30 p-3">
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    value={urlInput}
+                    onChange={(e) => setUrlInput(e.target.value)}
+                    placeholder="https://company.com/careers/role"
+                    disabled={extracting}
+                    className="h-10 flex-1 rounded-lg border border-input bg-background px-3 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void extractFromUrl()}
+                    disabled={extracting || !urlInput.trim()}
+                    className="inline-flex h-10 shrink-0 items-center rounded-lg bg-foreground px-4 text-xs font-semibold text-background disabled:opacity-50"
+                  >
+                    {extracting ? "Fetching..." : "Fetch text"}
+                  </button>
+                </div>
+                <p className="text-[0.7rem] leading-relaxed text-muted-foreground">
+                  Tip: drop a share link from{" "}
+                  <a
+                    href="https://jd.energytalentco.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-foreground underline-offset-4 hover:underline"
+                  >
+                    JD Studio
+                  </a>{" "}
+                  (your branded JD platform) — it pulls the role title and
+                  description straight in. No JD yet?{" "}
+                  <a
+                    href="https://jd.energytalentco.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-semibold text-foreground underline-offset-4 hover:underline"
+                  >
+                    Create one in JD Studio →
+                  </a>
+                </p>
               </div>
             )}
 

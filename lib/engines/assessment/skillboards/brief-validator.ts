@@ -23,6 +23,7 @@ import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { aiSpendLedger } from "@/lib/db/schema";
 import { costUsdX10000 } from "@/lib/ai/pricing";
+import { asciiSafeJsonStringify } from "@/lib/tenant/sanitise";
 
 import type { SkillboardRoleFamily } from "@/lib/db/schema";
 
@@ -101,7 +102,7 @@ Return ONLY a JSON object with this exact shape:
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+      body: asciiSafeJsonStringify({
         systemInstruction: { parts: [{ text: VET_PROMPT_SYSTEM }] },
         contents: [{ parts: [{ text: userPrompt }] }],
         generationConfig: {

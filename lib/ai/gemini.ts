@@ -10,6 +10,8 @@
  * Requires ASSESSMENT_GEMINI_KEY.
  */
 
+import { asciiSafeJsonStringify } from "@/lib/tenant/sanitise";
+
 // Per-call model. Transcription uses Flash (cheap, audio-native).
 // Scoring uses 2.5 Pro because rubric-grading benefits from stronger
 // reasoning and the cost is amortised over a small per-day volume of
@@ -43,7 +45,7 @@ async function callGemini(parts: GeminiPart[], model: string): Promise<string> {
   const res = await fetch(`${endpointFor(model)}?key=${getApiKey()}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ contents: [{ parts }] }),
+    body: asciiSafeJsonStringify({ contents: [{ parts }] }),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");

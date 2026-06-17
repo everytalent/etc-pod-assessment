@@ -6,6 +6,8 @@
  * Requires KIMI_API_KEY. Model defaults to KIMI_MODEL or kimi-k2.
  */
 
+import { asciiSafeJsonStringify } from "@/lib/tenant/sanitise";
+
 import {
   buildScoringPrompt,
   parseScoreSuggestion,
@@ -38,7 +40,7 @@ async function callKimiOnce(prompt: string): Promise<string> {
       Authorization: `Bearer ${getApiKey()}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
+    body: asciiSafeJsonStringify({
       model,
       messages: [{ role: "user", content: prompt }],
       // Ask for JSON-only output where supported. If the deployed model

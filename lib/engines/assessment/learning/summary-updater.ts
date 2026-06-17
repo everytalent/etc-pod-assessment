@@ -23,6 +23,7 @@ import {
   type SeniorityBand,
 } from "@/lib/db/schema";
 import { costUsdX10000 } from "@/lib/ai/pricing";
+import { asciiSafeJsonStringify } from "@/lib/tenant/sanitise";
 
 const KIMI_ENDPOINT = "https://api.moonshot.ai/v1/chat/completions";
 const KIMI_MODEL = process.env.KIMI_MODEL ?? "moonshot-v1-8k";
@@ -159,7 +160,7 @@ async function callKimiSummary(prompt: string): Promise<string> {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({
+    body: asciiSafeJsonStringify({
       model: KIMI_MODEL,
       temperature: 0.3,
       max_tokens: 800,
