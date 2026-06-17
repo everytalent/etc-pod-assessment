@@ -124,6 +124,13 @@ async function handleUrl(req: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "blocked_host" }, { status: 400 });
   }
 
+  // JD Studio share links are SPAs (#/share/<id>) — a plain server fetch
+  // gets the empty React shell. Resolve via the public JD API instead.
+  const jdShare = matchJdStudioShareUrl(u);
+  if (jdShare) {
+    return handleJdStudioShare(jdShare);
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), URL_FETCH_TIMEOUT_MS);
   let res: Response;
@@ -220,18 +227,89 @@ async function handleUrl(req: Request): Promise<NextResponse> {
 }
 
 async function extractPdf(buffer: Buffer): Promise<string> {
-  const mod = (await import("pdf-parse")) as unknown as
-    | { default: (data: Buffer) => Promise<{ text: string }> }
-    | ((data: Buffer) => Promise<{ text: string }>);
-  const fn = typeof mod === "function" ? mod : mod.default;
-  const out = await fn(buffer);
-  return out.text;
+  // unpdf is the serverless-friendly choice — pdf-parse@2 pulls in
+  // pdfjs-dist which expects browser canvas APIs that Netlify's Node
+  // runtime can't polyfill without @napi-rs/canvas (heavy native dep).
+  const { extractText } = await import("unpdf");
+  const bytes = new Uint8Array(buffer);
+  const result = await extractText(bytes, { mergePages: true });
+  return Array.isArray(result.text) ? result.text.join("\n") : result.text;
 }
 
 async function extractDocx(buffer: Buffer): Promise<string> {
   const mammoth = await import("mammoth");
   const out = await mammoth.extractRawText({ buffer });
   return out.value;
+}
+
+type JdShareTarget = { jdId: string; origin: string };
+
+/**
+ * Detects a JD Studio share URL of the form
+ *   https://jd.energytalentco.com/#/share/<uuid>
+ * and returns the JD id + origin so the caller can hit the public API
+ * directly. Returns null when the URL isn't a JD Studio share link.
+ */
+function matchJdStudioShareUrl(u: URL): JdShareTarget | null {
+  if (u.hostname !== "jd.energytalentco.com") return null;
+  // SharePage routes on the URL fragment: #/share/<id> or #share/<id>.
+  const hash = u.hash.replace(/^#\/?/, "");
+  const m = hash.match(/^share\/([0-9a-fA-F-]{32,40})/);
+  if (!m) return null;
+  return { jdId: m[1], origin: u.origin };
+}
+
+async function handleJdStudioShare(target: JdShareTarget): Promise<NextResponse> {
+  const apiUrl = `${target.origin}/api/client-jd/public/${encodeURIComponent(target.jdId)}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), URL_FETCH_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(apiUrl, {
+      signal: controller.signal,
+      headers: { accept: "application/json" },
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    return NextResponse.json(
+      {
+        error: "fetch_failed",
+        detail: err instanceof Error ? err.message : "unknown",
+      },
+      { status: 502 },
+    );
+  }
+  clearTimeout(timer);
+  if (!res.ok) {
+    return NextResponse.json(
+      { error: "fetch_failed", status: res.status },
+      { status: 502 },
+    );
+  }
+  let payload: { record?: { jd_markdown?: string; role_title?: string } };
+  try {
+    payload = await res.json();
+  } catch {
+    return NextResponse.json(
+      { error: "extraction_failed", detail: "non-JSON response from JD Studio" },
+      { status: 502 },
+    );
+  }
+  const markdown = payload.record?.jd_markdown ?? "";
+  const title = payload.record?.role_title ?? "";
+  const combined = (title ? `${title}\n\n` : "") + markdown;
+  const cleaned = sanitiseUserText(combined).trim();
+  if (cleaned.length < 50) {
+    return NextResponse.json(
+      { error: "extracted_text_too_short" },
+      { status: 422 },
+    );
+  }
+  return NextResponse.json({
+    text: cleaned.slice(0, MAX_OUTPUT_CHARS),
+    filename: null,
+    source_label: title || `JD Studio · ${target.jdId.slice(0, 8)}`,
+  });
 }
 
 function stripHtml(html: string): string {

@@ -24,6 +24,7 @@ import { z } from "zod";
 
 import { callOpusRaw, withOpusBudget } from "@/lib/ai/opus";
 import type { TenantIntakeType } from "@/lib/db/schema";
+import { sanitiseUserText } from "@/lib/tenant/sanitise";
 
 export const intakeAnalysisSchema = z.object({
   /** Best-guess role label the assessment should anchor against. */
@@ -89,10 +90,19 @@ export async function analyseIntake(args: {
   intakeText: string;
   contextText: string | null;
 }): Promise<IntakeAnalysis> {
+  // Belt-and-suspenders: rows created before the API-entry sanitiser
+  // landed may still hold U+2028 / control chars that trip fetch's
+  // ByteString validation downstream. Strip again here so the worker
+  // path is independently safe.
+  const cleanedIntake = sanitiseUserText(args.intakeText);
+  const cleanedContext = args.contextText
+    ? sanitiseUserText(args.contextText)
+    : null;
+
   const user =
     args.intakeType === "job_description"
-      ? buildJdPrompt(args.intakeText, args.contextText)
-      : buildSowPrompt(args.intakeText, args.contextText);
+      ? buildJdPrompt(cleanedIntake, cleanedContext)
+      : buildSowPrompt(cleanedIntake, cleanedContext);
 
   const result = await withOpusBudget("skillboard_authoring", () =>
     callOpusRaw({
