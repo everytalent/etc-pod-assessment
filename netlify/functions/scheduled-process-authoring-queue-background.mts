@@ -30,8 +30,12 @@ import type { Config } from "@netlify/functions";
 import { and, asc, eq, lt } from "drizzle-orm";
 
 import { db } from "../../lib/db/client.js";
-import { skillboardAuthoringJobs } from "../../lib/db/schema.js";
+import { skillboardAuthoringJobs, tenantAssessmentBank } from "../../lib/db/schema.js";
 import { processNextAuthoringJob } from "../../lib/engines/assessment/skillboards/claude-author.js";
+import {
+  processOneTenantBankFromQueue,
+  rescueStuckTenantBanks,
+} from "../../lib/engines/tenant-builder/worker.js";
 
 /** Stop processing new jobs when we have this much wall-clock left. */
 const SOFT_BUDGET_MS = 13 * 60 * 1000; // 13 of 15 min
@@ -126,9 +130,64 @@ export default async function handler() {
     }
   }
 
+  // ----- Step 3: tenant assessment queue -----
+  //
+  // Same drain pattern, against tenant_assessment_bank. Without this
+  // the only thing processing tenant banks is the Railway long-lived
+  // worker (scripts/run-worker.mts), which can drift out of sync with
+  // the Netlify deploy and serve stale code. Driving the queue from
+  // here means the same deploy that ships a fix also processes the
+  // queue with that fix.
+  try {
+    const tenantRescued = await rescueStuckTenantBanks(STUCK_JOB_TIMEOUT_MS);
+    if (tenantRescued > 0) {
+      console.log(
+        `[bg-worker] reset ${tenantRescued} stuck tenant bank(s) to queued`,
+      );
+    }
+  } catch (err) {
+    console.warn(
+      "[bg-worker] tenant stuck-bank rescue errored:",
+      err instanceof Error ? err.message : "unknown",
+    );
+  }
+
+  const tenantOutcomes: Array<{
+    bank_id: string;
+    outcome: string;
+    duration_ms: number;
+  }> = [];
+  for (let i = 0; i < MAX_JOBS_PER_TICK; i++) {
+    if (Date.now() - startedAt > SOFT_BUDGET_MS) {
+      console.log("[bg-worker] soft time budget exhausted, stopping (tenant)");
+      break;
+    }
+    const t0 = Date.now();
+    try {
+      const result = await processOneTenantBankFromQueue();
+      if (!result.processed) {
+        break;
+      }
+      tenantOutcomes.push({
+        bank_id: result.bankId,
+        outcome: result.success ? "ok" : `failed (${(result.error ?? "").slice(0, 120)})`,
+        duration_ms: Date.now() - t0,
+      });
+    } catch (err) {
+      tenantOutcomes.push({
+        bank_id: "unknown",
+        outcome: `threw (${err instanceof Error ? err.message.slice(0, 120) : "unknown"})`,
+        duration_ms: Date.now() - t0,
+      });
+      break;
+    }
+  }
+
+  void tenantAssessmentBank; // import-keep — surface in this file for future tweaks
+
   const totalMs = Date.now() - startedAt;
   console.log(
-    `[bg-worker] tick complete: ${outcomes.length} jobs in ${totalMs}ms`,
+    `[bg-worker] tick complete: ${outcomes.length} skillboard jobs + ${tenantOutcomes.length} tenant banks in ${totalMs}ms`,
   );
   // Body is mostly for log inspection; Netlify ignores the response on
   // background invocations beyond returning a 202.
@@ -137,12 +196,17 @@ export default async function handler() {
       ticked_at: new Date(startedAt).toISOString(),
       duration_ms: totalMs,
       jobs_processed: outcomes.length,
+      tenant_banks_processed: tenantOutcomes.length,
       outcomes,
+      tenant_outcomes: tenantOutcomes,
     }),
     { status: 200, headers: { "content-type": "application/json" } },
   );
 }
 
 export const config: Config = {
-  schedule: "*/5 * * * *",
+  // Every minute — tenant submissions otherwise wait up to 5 minutes
+  // for pickup, which is plainly bad UX. Each tick exits fast when
+  // both queues are empty, so cost stays low.
+  schedule: "* * * * *",
 };
