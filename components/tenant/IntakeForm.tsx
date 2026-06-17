@@ -159,7 +159,12 @@ export function IntakeForm() {
       return;
     }
     const data = await res.json();
-    clearDraft();
+    // Intentionally NOT clearing the draft here. The /assessment-banks
+    // POST creating the row doesn't mean generation succeeded — the
+    // worker can still fail downstream (Anthropic timeout, prompt
+    // rejection, etc.) and the "Try again" flow needs the form values
+    // to be restorable. The draft is only cleared when the user
+    // explicitly clicks "Start over" via discardDraft().
     router.push(`/tenant/assessments/${data.id}/waiting`);
   };
 
