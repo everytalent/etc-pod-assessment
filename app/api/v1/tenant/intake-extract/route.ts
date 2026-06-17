@@ -87,7 +87,7 @@ async function handleFile(req: Request): Promise<NextResponse> {
     );
   }
 
-  const cleaned = sanitiseUserText(text).trim();
+  const cleaned = normaliseExtractedText(sanitiseUserText(text)).trim();
   if (cleaned.length < 50) {
     return NextResponse.json(
       { error: "extracted_text_too_short" },
@@ -211,7 +211,7 @@ async function handleUrl(req: Request): Promise<NextResponse> {
     );
   }
 
-  const cleaned = sanitiseUserText(text).trim();
+  const cleaned = normaliseExtractedText(sanitiseUserText(text)).trim();
   if (cleaned.length < 50) {
     return NextResponse.json(
       { error: "extracted_text_too_short" },
@@ -240,6 +240,35 @@ async function extractDocx(buffer: Buffer): Promise<string> {
   const mammoth = await import("mammoth");
   const out = await mammoth.extractRawText({ buffer });
   return out.value;
+}
+
+/**
+ * Reshape the raw text we get from PDFs and HTML scrapes into something
+ * readable in a textarea — line-broken bullets, paragraph spacing
+ * around obvious section headers, and no runs of stray whitespace.
+ * Kept conservative: never rewrites words, only inserts/removes
+ * whitespace and newlines.
+ */
+function normaliseExtractedText(text: string): string {
+  const bullet = new RegExp("[\\u2022\\u25CF\\u25CB\\u25E6\\u25AA\\u00B7]", "g");
+  const headers =
+    /\s+(About (?:the|this)? ?role|Role overview|Overview|What you(?:'|’)?ll do|What you will do|Responsibilities|Key responsibilities|Duties|Requirements|Required skills|Must[- ]haves?|Qualifications|Skills|Experience|Why join|Why work|Benefits|Compensation|Salary|Location|How to apply|About (?:the|our)? ?company|Apply now)\b/gi;
+
+  return text
+    // 1. Standardise bullets onto their own lines.
+    .replace(bullet, "\n• ")
+    // 2. Insert a paragraph break before well-known section headers.
+    .replace(headers, "\n\n$1")
+    // 3. Sentence followed by what looks like a capitalised header on
+    //    the same line — split it. Conservative: only fires when the
+    //    next token is a known header term we'd catch above too.
+    .replace(/([.!?])\s+(?=[A-Z][a-z]+ (?:role|skills|requirements|duties))/g, "$1\n\n")
+    // 4. Collapse runs of inline whitespace.
+    .replace(/[ \t]+/g, " ")
+    // 5. Trim space around line breaks.
+    .replace(/[ \t]*\n[ \t]*/g, "\n")
+    // 6. Collapse three or more blank lines.
+    .replace(/\n{3,}/g, "\n\n");
 }
 
 type JdShareTarget = { jdId: string; origin: string };
@@ -297,6 +326,9 @@ async function handleJdStudioShare(target: JdShareTarget): Promise<NextResponse>
   }
   const markdown = payload.record?.jd_markdown ?? "";
   const title = payload.record?.role_title ?? "";
+  // jd_markdown is already well-formatted Markdown, so we don't pass
+  // it through normaliseExtractedText (which would flatten the
+  // intentional structure). Just sanitise control chars.
   const combined = (title ? `${title}\n\n` : "") + markdown;
   const cleaned = sanitiseUserText(combined).trim();
   if (cleaned.length < 50) {
