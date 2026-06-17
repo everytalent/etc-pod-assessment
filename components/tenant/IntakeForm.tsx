@@ -78,23 +78,39 @@ export function IntakeForm() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [restoredFromDraft, setRestoredFromDraft] = useState(false);
+  const [pendingDraft, setPendingDraft] = useState<Draft | null>(null);
   const [intakeMode, setIntakeMode] = useState<IntakeMode>("paste");
   const [sourceLabel, setSourceLabel] = useState<string | null>(null);
   const [urlInput, setUrlInput] = useState("");
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
 
+  // Don't auto-restore. Surface the saved draft as an offer so people
+  // intentionally starting fresh see an empty form, and people retrying
+  // after a failure can recover with one click.
   useEffect(() => {
     const draft = readDraft();
-    if (!draft) return;
-    setIntakeType(draft.intakeType);
-    setIntakeText(draft.intakeText);
-    setContextText(draft.contextText);
-    setWantsOwnQuestions(draft.wantsOwnQuestions);
-    setQuestionsRaw(draft.questionsRaw);
-    setBatchTreatment(draft.batchTreatment);
-    setRestoredFromDraft(true);
+    if (draft && draft.intakeText.trim().length >= 20) {
+      setPendingDraft(draft);
+    }
   }, []);
+
+  const acceptDraft = () => {
+    if (!pendingDraft) return;
+    setIntakeType(pendingDraft.intakeType);
+    setIntakeText(pendingDraft.intakeText);
+    setContextText(pendingDraft.contextText);
+    setWantsOwnQuestions(pendingDraft.wantsOwnQuestions);
+    setQuestionsRaw(pendingDraft.questionsRaw);
+    setBatchTreatment(pendingDraft.batchTreatment);
+    setRestoredFromDraft(true);
+    setPendingDraft(null);
+  };
+
+  const declineDraft = () => {
+    clearDraft();
+    setPendingDraft(null);
+  };
 
   useEffect(() => {
     if (intakeText.trim().length < 20) return;
@@ -242,12 +258,36 @@ export function IntakeForm() {
 
   return (
     <div className="space-y-6">
+      {pendingDraft && (
+        <div className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-foreground/20 bg-foreground/5 p-4 text-xs">
+          <p>
+            <span className="font-semibold">Resume your last draft?</span>{" "}
+            We kept what you had ({pendingDraft.intakeText.trim().length}{" "}
+            characters of {pendingDraft.intakeType === "job_description" ? "JD" : "SOW"} text).
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={declineDraft}
+              className="rounded-lg border border-border bg-background px-3 py-1.5 font-medium hover:border-etc-marigold"
+            >
+              Start fresh
+            </button>
+            <button
+              type="button"
+              onClick={acceptDraft}
+              className="rounded-lg bg-foreground px-3 py-1.5 font-semibold text-background"
+            >
+              Resume
+            </button>
+          </div>
+        </div>
+      )}
       {restoredFromDraft && (
         <div className="flex items-start justify-between gap-3 rounded-2xl border border-foreground/20 bg-foreground/5 p-4 text-xs">
           <p>
-            <span className="font-semibold">We saved what you had.</span> Your
-            previous draft is restored below — pick up where you left off, or
-            start over.
+            <span className="font-semibold">Draft restored.</span> Pick up where
+            you left off, or start over.
           </p>
           <button
             type="button"

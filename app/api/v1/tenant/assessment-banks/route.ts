@@ -97,8 +97,11 @@ export async function POST(req: Request): Promise<NextResponse> {
     .update(parsed.intake_text.trim())
     .digest("hex");
 
-  // Optional dedupe-within-24h: surface existing rows so the tenant
-  // doesn't accidentally burn a credit on the same JD twice.
+  // Dedupe-within-24h: surface existing rows so the tenant doesn't
+  // accidentally burn a credit on the same JD twice. Failed banks are
+  // explicitly excluded — re-submitting after a failure must always
+  // create a fresh bank that flows through current code, otherwise we
+  // trap the user on a stale failure they can't escape.
   const [existing] = await db
     .select({
       id: tenantAssessmentBank.id,
@@ -108,7 +111,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     .from(tenantAssessmentBank)
     .where(eq(tenantAssessmentBank.intakeTextHash, intakeTextHash))
     .limit(1);
-  if (existing) {
+  if (existing && existing.status !== "failed") {
     const ageMs = Date.now() - existing.createdAt.getTime();
     if (ageMs < 24 * 60 * 60 * 1000) {
       return NextResponse.json(
