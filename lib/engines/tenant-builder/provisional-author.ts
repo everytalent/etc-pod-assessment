@@ -23,6 +23,8 @@
 
 import { randomUUID } from "node:crypto";
 
+import { and, eq, ilike, isNull } from "drizzle-orm";
+
 import { db } from "@/lib/db/client";
 import {
   skillboards,
@@ -44,15 +46,27 @@ function inferRoleFamily(analysis: IntakeAnalysis): SkillboardRoleFamily {
   ]
     .join(" ")
     .toLowerCase();
-  const bdHits = /sales|business development|account|portfolio|client|commercial|pricing|partnership/.test(
-    text,
-  );
-  const techHits = /install|design|wiring|inverter|wiring|maintenance|diagnose|sop|engineer|operations/.test(
-    text,
-  );
+  // bd_pm captures everything people-facing and commercial: sales,
+  // account management, partnerships, recruitment, HR, ops-management
+  // — roles whose competencies live in conversation, judgment, and
+  // pipelines rather than hands-on equipment work.
+  const bdHits =
+    /sales|business development|account|portfolio|client|commercial|pricing|partnership|recruit|talent|hiring|sourc|headhunt|hr |human resources|people ops|onboarding/.test(
+      text,
+    );
+  const techHits =
+    /install|design|wiring|inverter|maintenance|diagnose|sop|engineer|operations|technician|fabricat|commission/.test(
+      text,
+    );
   if (bdHits && techHits) return "hybrid";
   if (bdHits) return "bd_pm";
-  return "technical";
+  if (techHits) return "technical";
+  // No strong signal either way → bd_pm is the safer default for
+  // generic "consultant", "analyst", "coordinator" labels which most
+  // often land in the people/process space. "technical" used to be
+  // the default but it routed recruiter / HR roles to engineering
+  // prompts which produced empty banks or wrong-domain questions.
+  return "bd_pm";
 }
 
 /**
@@ -113,18 +127,47 @@ export async function createProvisionalFramework(args: {
   const brief = synthesiseBrief(args.analysis);
   const roleFamily = inferRoleFamily(args.analysis);
 
+  const tenantSuffix = args.tenantId.split("-")[0];
+  const baseSpecialisation = args.analysis.specialisation_guess;
+
+  // Reuse a provisional board this tenant already authored for the
+  // same role. Without this, every failed-and-retried generation spawns
+  // a brand new skillboard, polluting the admin queue with dozens of
+  // near-duplicates of the same JD. We match on the canonical prefix
+  // ("Recruitment Consultant (tenant:e938a03d · ") so suffix variations
+  // from earlier code paths still get picked up.
+  const reuseLikePattern = `${baseSpecialisation} (tenant:${tenantSuffix}%`;
+  const [existing] = await db
+    .select({
+      id: skillboards.id,
+      specialisation: skillboards.specialisation,
+    })
+    .from(skillboards)
+    .where(
+      and(
+        eq(skillboards.originatingTenantId, args.tenantId),
+        eq(skillboards.provisional, true),
+        ilike(skillboards.specialisation, reuseLikePattern),
+        isNull(skillboards.archivedAt),
+      ),
+    )
+    .limit(1);
+
+  if (existing) {
+    return {
+      skillboardId: existing.id,
+      specialisation: baseSpecialisation,
+    };
+  }
+
   // skillboards.specialisation is a UNIQUE column. The matcher might
   // reject an existing master board as a poor fit AND we'd still end
   // up colliding on insert when we try to author the provisional under
   // the same name. Scope provisional names by tenant + a short random
-  // tag so multiple tenants, master boards, and retries by the same
-  // tenant for the same role can coexist without stomping on each
-  // other. The brief / specialisation_guess inside the framework
-  // structure preserves the human-readable name; this suffix is purely
-  // a uniqueness key.
-  const tenantSuffix = args.tenantId.split("-")[0];
+  // tag so multiple tenants and master boards can coexist with the
+  // same role label. (Same tenant retries are handled by the reuse
+  // lookup above.)
   const randomTag = randomUUID().slice(0, 8);
-  const baseSpecialisation = args.analysis.specialisation_guess;
   const provisionalSpecialisation = `${baseSpecialisation} (tenant:${tenantSuffix} · ${randomTag})`;
 
   const [board] = await db
