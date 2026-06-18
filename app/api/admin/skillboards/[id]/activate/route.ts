@@ -93,7 +93,7 @@ export async function POST(
         for (const l of LEVELS) {
           rows.push({
             skillboardId: id,
-            jobType: "question_seed" as AuthoringJobType,
+            jobType: "bank_seed" as AuthoringJobType,
             taskId: t.id,
             // The worker reads the payload from the `result` column
             // (mis-named but established). auto_approve defaults to

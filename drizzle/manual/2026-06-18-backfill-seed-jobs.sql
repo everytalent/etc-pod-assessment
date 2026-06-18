@@ -1,30 +1,26 @@
 -- =============================================================================
--- 2026-06-18 — Backfill question_seed jobs for already-activated boards
+-- 2026-06-18 — Backfill bank_seed jobs for already-activated boards
 -- =============================================================================
--- After commit X, the activate route auto-enqueues seed jobs for every
--- (band × level × task) cell. But the 4 boards that were activated
--- BEFORE that change have nearly-empty validation banks and need a
--- one-time backfill.
+-- The 4 boards activated before today's auto-seed change have nearly-
+-- empty banks. This script enqueues seed jobs for each, scoped CHEAP
+-- to keep cost low while getting candidates through the flow.
 --
--- This script inserts one `question_seed` job per cell × band × level
--- for every active, non-archived board. The worker picks them up on
--- the next poll (or Netlify cron tick) and runs them in parallel,
--- auto-approving each question into the validation bank.
+-- Strategy: seed all 3 bands but ONLY at the "Growing" (g) level.
+-- The CAT picker's neighbour-band + neighbour-level fallback (added
+-- 2026-06-18) means a candidate at any band/level can still reach
+-- these questions. Once a candidate completes a session you can
+-- decide whether to add more cells.
 --
--- Cost: ~$0.05 per cell. A typical board has 27 tasks × 3 bands ×
--- 5 levels = 405 cells = ~$20 per board. With 4 boards that's ~$80
--- of Opus credit. Time: ~30-60 minutes per board on a single worker;
--- proportionally faster with concurrent workers + cron ticks.
+-- Cost:  ~25 tasks × 3 bands × 1 level × 3 questions × $0.05 ≈ $11/board
+-- Total: 4 boards × ~$11 ≈ ~$45  (vs ~$80 for full coverage)
 --
--- SAFE to re-run — skips boards that already have >= 30 questions in
--- their validation bank (presumed "seeded enough"). Adjust the
--- threshold by editing the HAVING clause.
+-- SAFE to re-run — skips boards that already have ≥ 30 questions in
+-- their validation bank.
 -- =============================================================================
 
 BEGIN;
 
 WITH eligible AS (
-  -- Activated, not-archived boards whose validation bank has < 30 questions.
   SELECT sb.id            AS skillboard_id,
          sb.specialisation AS spec
   FROM   skillboards sb
@@ -39,42 +35,40 @@ WITH eligible AS (
   HAVING COUNT(q.id) < 30
 ),
 cells AS (
-  -- All (skillboard, task, band, level) cells for those boards.
   SELECT e.skillboard_id,
          e.spec,
          t.id AS task_id,
-         band,
-         level
+         band
   FROM   eligible e
   JOIN   skills s  ON s.skillboard_id = e.skillboard_id
   JOIN   tasks  t  ON t.skill_id      = s.id
-  CROSS  JOIN UNNEST(ARRAY['junior','mid','senior']::seniority_band[])   AS band
-  CROSS  JOIN UNNEST(ARRAY['below','nh','g','p','tp']::performance_level[]) AS level
+  CROSS  JOIN UNNEST(ARRAY['junior','mid','senior']::seniority_band[]) AS band
 )
 INSERT INTO skillboard_authoring_jobs
   (skillboard_id, job_type, task_id, status, paused_until_review, result)
 SELECT skillboard_id,
-       'question_seed'::authoring_job_type,
+       'bank_seed'::authoring_job_type,
        task_id,
        'pending'::authoring_job_status,
        false,
        jsonb_build_object(
-         'specialisation',   spec,
-         'band',             band::text,
-         'level',            level::text,
-         'task_id',          task_id::text,
+         'specialisation',     spec,
+         'band',               band::text,
+         'level',              'g',
+         'task_id',            task_id::text,
          'questions_per_cell', 3,
-         'auto_approve',     true
+         'auto_approve',       true
        )
 FROM cells;
 
 COMMIT;
 
 -- ---------- Verify ----------
--- Expected: a row per (board × cell) you just enqueued. Worker will
--- drain it over the next 30-60 min per board.
-SELECT skillboard_id, COUNT(*) AS jobs_enqueued
-FROM   skillboard_authoring_jobs
-WHERE  job_type = 'question_seed'
-  AND  status = 'pending'
-GROUP  BY skillboard_id;
+SELECT sb.specialisation,
+       COUNT(*) AS jobs_enqueued
+FROM   skillboard_authoring_jobs j
+JOIN   skillboards sb ON sb.id = j.skillboard_id
+WHERE  j.job_type = 'bank_seed'
+  AND  j.status   = 'pending'
+GROUP  BY sb.specialisation
+ORDER  BY sb.specialisation;
