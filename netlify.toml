@@ -31,5 +31,5 @@
 #   - Or invoke the underlying endpoint directly:
 #       curl -X POST -H "Authorization: Bearer $WORKER_CRON_SECRET" \
 #         https://<your-site>.netlify.app/api/cron/process-authoring-queue
-[functions."scheduled-process-authoring-queue"]
+[functions."scheduled-process-authoring-queue-background"]
   schedule = "*/5 * * * *"
