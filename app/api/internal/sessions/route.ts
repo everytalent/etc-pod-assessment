@@ -41,6 +41,7 @@ import {
 import { deduceBand } from "@/lib/engines/assessment/band-deducer";
 import { getOnboardingProfile } from "@/lib/engines/assessment/onboarding-client";
 import { getOrCreateValidationBank } from "@/lib/engines/assessment/proposals/validation-bank";
+import { findSkillboardForSpecialisation } from "@/lib/engines/assessment/specialisation-matcher";
 
 const inputSchema = z.object({
   candidate_id: z.string().trim().min(1).max(60),
@@ -104,33 +105,61 @@ export async function POST(req: Request): Promise<NextResponse> {
   }
 
   // ---------- 4. Validate each specialisation has an active board + bank ----------
+  //
+  // Matching is tolerant (see specialisation-matcher.ts):
+  //   - exact, then normalised (case-insensitive + suffix-strip),
+  //     then alias map, then Levenshtein ≤ 2.
+  // Each spec ends up in exactly one bucket:
+  //   - resolved      : ready for validation (board active, bank non-empty)
+  //   - unknown       : no matching skillboard at all
+  //   - inactive      : skillboard exists but not yet activated by Learning Expert
+  //   - empty_banks   : board active but no approved questions yet
+  //
+  // We then return PARTIAL SUCCESS: as long as ≥1 spec resolves, we mint a
+  // session for the resolved ones and surface the rest in `pending_specs`
+  // so Onboarding can show "Your X assessment is ready — Y will be when..."
+  // rather than blocking the candidate entirely.
   const unknown: string[] = [];
   const inactive: string[] = [];
   const emptyBanks: string[] = [];
   const resolved: { specialisation: string; bankAssessmentId: string }[] = [];
+  // For observability + debugging — also collected so we can show admins
+  // exactly which matcher strategy landed each spec.
+  const matchTrace: {
+    requested: string;
+    matched_skillboard: string | null;
+    strategy: string;
+  }[] = [];
 
   for (const spec of input.specialisations) {
-    const [board] = await db
-      .select({
-        id: skillboards.id,
-        activatedAt: skillboards.activatedAt,
-        archivedAt: skillboards.archivedAt,
-      })
-      .from(skillboards)
-      .where(eq(skillboards.specialisation, spec))
-      .limit(1);
-    // Treat archived boards as "unknown" from the caller's perspective —
-    // the spec genuinely isn't available for new sessions, even if it
-    // existed historically.
-    if (!board || board.archivedAt) {
+    const m = await findSkillboardForSpecialisation(spec);
+    if (m.kind === "miss") {
+      matchTrace.push({
+        requested: spec,
+        matched_skillboard: null,
+        strategy: "none",
+      });
       unknown.push(spec);
       continue;
     }
-    if (!board.activatedAt) {
+    matchTrace.push({
+      requested: spec,
+      matched_skillboard: m.storedName,
+      strategy: m.strategy,
+    });
+    // Archived boards are effectively unknown — the spec isn't on offer.
+    if (m.archivedAt) {
+      unknown.push(spec);
+      continue;
+    }
+    if (!m.activatedAt) {
       inactive.push(spec);
       continue;
     }
-    const bank = await getOrCreateValidationBank(spec);
+    // Use the matched skillboard's stored name for bank lookups so we
+    // hit the existing sentinel Validation Bank assessment, not a new
+    // one keyed by the requested label.
+    const bank = await getOrCreateValidationBank(m.storedName);
     const bankQuestionCount = await db
       .select({ id: questions.id })
       .from(questions)
@@ -140,39 +169,69 @@ export async function POST(req: Request): Promise<NextResponse> {
       emptyBanks.push(spec);
       continue;
     }
+    // We pass the candidate-facing label (input spec) downstream, not the
+    // skillboard's stored name — the response & UI surface what the
+    // candidate picked, with the matched skillboard's content underneath.
     resolved.push({ specialisation: spec, bankAssessmentId: bank.id });
   }
 
-  if (unknown.length > 0) {
-    return NextResponse.json(
-      {
-        error: "unknown_specialisation",
-        message: `No skillboard for: ${unknown.join(", ")}`,
-        unknown,
-      },
-      { status: 422 },
-    );
-  }
-  if (inactive.length > 0) {
-    return NextResponse.json(
-      {
-        error: "skillboard_not_activated",
-        message: `Skillboard(s) exist but not activated: ${inactive.join(", ")}`,
-        inactive,
-      },
-      { status: 422 },
-    );
-  }
-  if (emptyBanks.length > 0) {
+  // Build pending_specs — every spec that didn't resolve, with its reason.
+  // Useful for the Onboarding-side dialog to say "Solar Installation is
+  // ready, Site Assessment will email you when ready" rather than blocking
+  // the whole session.
+  const pendingSpecs: Array<{
+    specialisation: string;
+    reason: "unknown" | "inactive" | "empty_bank";
+  }> = [
+    ...unknown.map((s) => ({ specialisation: s, reason: "unknown" as const })),
+    ...inactive.map((s) => ({ specialisation: s, reason: "inactive" as const })),
+    ...emptyBanks.map((s) => ({
+      specialisation: s,
+      reason: "empty_bank" as const,
+    })),
+  ];
+
+  // FAIL only when NO spec resolved — i.e. candidate has nothing to take.
+  // Backwards-compat: keep returning the same error codes as v1.0 in the
+  // single-spec fail case so existing onboarding-side handlers still match.
+  if (resolved.length === 0) {
+    if (unknown.length > 0) {
+      return NextResponse.json(
+        {
+          error: "unknown_specialisation",
+          message: `No skillboard for: ${unknown.join(", ")}`,
+          unknown,
+          pending_specs: pendingSpecs,
+          match_trace: matchTrace,
+        },
+        { status: 422 },
+      );
+    }
+    if (inactive.length > 0) {
+      return NextResponse.json(
+        {
+          error: "skillboard_not_activated",
+          message: `Skillboard(s) exist but not activated: ${inactive.join(", ")}`,
+          inactive,
+          pending_specs: pendingSpecs,
+          match_trace: matchTrace,
+        },
+        { status: 422 },
+      );
+    }
     return NextResponse.json(
       {
         error: "validation_bank_empty",
         message: `Validation Bank has zero approved questions for: ${emptyBanks.join(", ")}`,
         empty_banks: emptyBanks,
+        pending_specs: pendingSpecs,
+        match_trace: matchTrace,
       },
       { status: 422 },
     );
   }
+  // From here on: at least one spec resolved. We'll succeed and surface
+  // the rest as `pending_specs` in the success payload.
 
   // ---------- 5. Dedupe: existing open session for this (candidate, specs)? ----------
   // Open = status in_progress AND validation_status in (pending, scored). We
@@ -294,6 +353,15 @@ export async function POST(req: Request): Promise<NextResponse> {
       url: buildTakeUrl(primaryToken),
       expires_at: expiresAt.toISOString(),
       specialisations_resolved: resolved.map((r) => r.specialisation),
+      // v1.2: partial-success. Specs that didn't make it into the session
+      // (no board, not activated, or empty bank) are surfaced here so the
+      // Onboarding-side UI can say "Your X is ready — Y will be when we
+      // finish setting it up" instead of blocking the whole session.
+      pending_specs: pendingSpecs,
+      // v1.2: trace of which matcher strategy landed each requested
+      // spec on which skillboard. Useful for admin debugging when name
+      // drift causes the wrong board to match. Safe to ignore client-side.
+      match_trace: matchTrace,
     },
     { status: 201 },
   );

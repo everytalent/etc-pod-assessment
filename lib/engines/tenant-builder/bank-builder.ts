@@ -163,6 +163,15 @@ export async function buildAssessmentBankForSkillboard(args: {
     }
   }
 
+  // Quality floor: an assessment with no questions is unusable.
+  // Fail loudly instead of shipping an empty bank that auto-submits
+  // a candidate the moment they hit Start.
+  if (generatedCount === 0) {
+    throw new Error(
+      "no_questions_generated · every cell in the framework failed to seed (check Opus logs and the specialisation prompt)",
+    );
+  }
+
   // Tenant questions append after the reserved cell range.
   let orderIndex = cellSpecs.length * ORDER_SLOTS_PER_CELL;
 

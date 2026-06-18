@@ -98,6 +98,10 @@ function synthesiseBrief(analysis: IntakeAnalysis): string {
 
 export type ProvisionalCreateResult = {
   skillboardId: string;
+  /** Human-readable name. The orchestrator passes this downstream to
+   *  prompt builders and assessment titles. The stored skillboards
+   *  row carries the same name plus a uniqueness suffix that stays
+   *  internal. */
   specialisation: string;
 };
 
@@ -126,6 +130,9 @@ export async function createProvisionalFramework(args: {
   const [board] = await db
     .insert(skillboards)
     .values({
+      // Stored name includes the uniqueness suffix. Never surface this
+      // to candidates, emails, or assessment titles — use the clean
+      // baseSpecialisation in the result for those.
       specialisation: provisionalSpecialisation,
       description: args.analysis.summary,
       creationPath: "tenant_builder",
@@ -140,13 +147,15 @@ export async function createProvisionalFramework(args: {
       specialisation: skillboards.specialisation,
     });
 
-  // Populate structure synchronously. The cells stay pending (empty
-  // expectation text) — the question bank generator doesn't read them.
-  // A Learning Expert refines cell text later via the existing queue.
+  // Populate structure synchronously. Pass the CLEAN base name to the
+  // structure prompt so Opus reasons about "Recruitment Consultant",
+  // not "Recruitment Consultant (tenant:e938a03d · fbeb4a4f)" — the
+  // suffix is purely a DB uniqueness key and confuses any model
+  // prompt that looks at it.
   await runStructureAuthoring({
     skillboardId: board.id,
     args: {
-      specialisation: board.specialisation,
+      specialisation: baseSpecialisation,
       brief,
     },
   });
@@ -167,5 +176,8 @@ export async function createProvisionalFramework(args: {
     // Don't fail the build if notify is misconfigured.
   }
 
-  return { skillboardId: board.id, specialisation: board.specialisation };
+  return {
+    skillboardId: board.id,
+    specialisation: baseSpecialisation,
+  };
 }
