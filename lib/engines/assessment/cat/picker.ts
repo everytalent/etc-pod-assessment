@@ -34,6 +34,22 @@ const LEVEL_NEIGHBOURS: Record<PerformanceLevel, PerformanceLevel[]> = {
   tp: ["p"],
 };
 
+/**
+ * Bands the picker is willing to fall back to when the exact band has no
+ * question for the target level. Ordered by closeness — junior falls
+ * back to mid before senior, etc. The first hit wins.
+ *
+ * This was added 2026-06-18 to prevent candidates from getting an
+ * instant "Submitted" screen when the bank has questions but none
+ * for their exact band — common during early ramp-up while you're
+ * still seeding the bank from one or two bands.
+ */
+const BAND_FALLBACK: Record<SeniorityBand, SeniorityBand[]> = {
+  junior: ["mid", "senior"],
+  mid: ["senior", "junior"],
+  senior: ["mid", "junior"],
+};
+
 export async function pickNextValidationQuestion(args: {
   specialisation: string;
   band: SeniorityBand;
@@ -41,14 +57,31 @@ export async function pickNextValidationQuestion(args: {
   excludeQuestionIds: string[];
   targetDifficulty?: number; // 1-10; lower = easier
 }): Promise<Question | null> {
-  const targets: { band: SeniorityBand; level: PerformanceLevel }[] = [
-    { band: args.band, level: args.level },
-    ...LEVEL_NEIGHBOURS[args.level].map((l) => ({ band: args.band, level: l })),
-  ];
+  // Try targets in order:
+  //   1. exact (band, level)
+  //   2. exact band, neighbour levels
+  //   3. fallback bands, exact level
+  //   4. fallback bands, neighbour levels
+  // First hit wins. Only returns null when the bank has NO usable
+  // question across all combinations — at which point the CAT engine
+  // genuinely should end.
+  const bands: SeniorityBand[] = [args.band, ...BAND_FALLBACK[args.band]];
+  const levelsAtBand = (b: SeniorityBand) =>
+    b === args.band
+      ? [args.level, ...LEVEL_NEIGHBOURS[args.level]]
+      : [args.level, ...LEVEL_NEIGHBOURS[args.level]];
 
-  for (const target of targets) {
-    const row = await pickFromCell(args.specialisation, target.band, target.level, args.excludeQuestionIds, args.targetDifficulty);
-    if (row) return row;
+  for (const b of bands) {
+    for (const l of levelsAtBand(b)) {
+      const row = await pickFromCell(
+        args.specialisation,
+        b,
+        l,
+        args.excludeQuestionIds,
+        args.targetDifficulty,
+      );
+      if (row) return row;
+    }
   }
   return null;
 }

@@ -70,9 +70,12 @@ export async function getOrCreateValidationBank(
       roleType,
       mode: "validation",
       specialisation,
-      // Defaults for the rest: status=draft (so the bank doesn't show
-      // up on the public listing), visibility=unlisted, threshold 70
-      // (irrelevant for validation), empty intro/outro text.
+      // status='published' is REQUIRED for candidates to reach the bank
+      // via /take/<token> → /assess/<slug>/session (the candidate-facing
+      // session loader gates on status='published'). visibility='unlisted'
+      // is what keeps validation banks off the public assessment listing,
+      // so it's safe to publish them.
+      status: "published",
       visibility: "unlisted",
       introText: "",
       outroText: "",
