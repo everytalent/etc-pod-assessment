@@ -131,6 +131,14 @@ async function handleUrl(req: Request): Promise<NextResponse> {
     return handleJdStudioShare(jdShare);
   }
 
+  // Recruiter Platform candidate-facing JD links use the same SPA-hash
+  // pattern at a different host. Route them through the recruiter
+  // portal's public JD endpoint.
+  const recruiterShare = matchRecruiterPortalUrl(u);
+  if (recruiterShare) {
+    return handleRecruiterPortalShare(recruiterShare);
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), URL_FETCH_TIMEOUT_MS);
   let res: Response;
@@ -341,6 +349,87 @@ async function handleJdStudioShare(target: JdShareTarget): Promise<NextResponse>
     text: cleaned.slice(0, MAX_OUTPUT_CHARS),
     filename: null,
     source_label: title || `JD Studio · ${target.jdId.slice(0, 8)}`,
+  });
+}
+
+type RecruiterShareTarget = { roleId: string; origin: string };
+
+/**
+ * Detects a Recruiter Platform share URL of the form
+ *   https://recruiter.energytalentco.com/#/jd/<role_id>
+ * The role id pattern is "role_" followed by 6-12 hex/alphanumeric
+ * characters (matching the existing portal scheme). Returns null when
+ * the URL doesn't match.
+ */
+function matchRecruiterPortalUrl(u: URL): RecruiterShareTarget | null {
+  if (u.hostname !== "recruiter.energytalentco.com") return null;
+  const hash = u.hash.replace(/^#\/?/, "");
+  const m = hash.match(/^jd\/(role_[a-zA-Z0-9]{4,32})/);
+  if (!m) return null;
+  return { roleId: m[1], origin: u.origin };
+}
+
+async function handleRecruiterPortalShare(
+  target: RecruiterShareTarget,
+): Promise<NextResponse> {
+  const apiUrl = `${target.origin}/api/portal/public/jd/${encodeURIComponent(target.roleId)}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), URL_FETCH_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(apiUrl, {
+      signal: controller.signal,
+      headers: { accept: "application/json" },
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    return NextResponse.json(
+      {
+        error: "fetch_failed",
+        detail: err instanceof Error ? err.message : "unknown",
+      },
+      { status: 502 },
+    );
+  }
+  clearTimeout(timer);
+  if (!res.ok) {
+    return NextResponse.json(
+      { error: "fetch_failed", status: res.status },
+      { status: 502 },
+    );
+  }
+  let payload: {
+    role_title?: string;
+    role_family?: string;
+    location?: string;
+    jd_markdown?: string;
+  };
+  try {
+    payload = await res.json();
+  } catch {
+    return NextResponse.json(
+      {
+        error: "extraction_failed",
+        detail: "non-JSON response from Recruiter Platform",
+      },
+      { status: 502 },
+    );
+  }
+  const markdown = payload.jd_markdown ?? "";
+  const title = payload.role_title ?? "";
+  const location = payload.location ? ` · ${payload.location}` : "";
+  const combined = (title ? `${title}${location}\n\n` : "") + markdown;
+  const cleaned = sanitiseUserText(combined).trim();
+  if (cleaned.length < 50) {
+    return NextResponse.json(
+      { error: "extracted_text_too_short" },
+      { status: 422 },
+    );
+  }
+  return NextResponse.json({
+    text: cleaned.slice(0, MAX_OUTPUT_CHARS),
+    filename: null,
+    source_label: title || `Recruiter Platform · ${target.roleId}`,
   });
 }
 
