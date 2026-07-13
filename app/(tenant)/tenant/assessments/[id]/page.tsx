@@ -8,14 +8,22 @@
  * If the bank isn't ready yet, redirect back to the waiting page.
  */
 
-import { and, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { getTenantSession } from "@/lib/auth/tenant";
 import { db } from "@/lib/db/client";
-import { tenantAssessmentBank } from "@/lib/db/schema";
+import {
+  assessments,
+  responses,
+  tenantAssessmentBank,
+} from "@/lib/db/schema";
 import { getTenantBrand } from "@/lib/tenant/branding";
 import { TenantThemeProvider } from "@/components/tenant/TenantThemeProvider";
+import {
+  AssessmentCandidatesTable,
+  type CandidateRow,
+} from "@/components/tenant/AssessmentCandidatesTable";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +63,68 @@ export default async function AssessmentResultPage({
   const link = row.assessmentLinkToken
     ? `https://assess.energytalentco.com/take-tenant/${row.assessmentLinkToken}`
     : null;
+
+  const candidateRowsRaw = row.assessmentLinkToken
+    ? await db
+        .select({
+          responseId: responses.id,
+          candidateName: responses.candidateName,
+          candidateEmail: responses.candidateEmail,
+          status: responses.status,
+          pass: responses.pass,
+          totalScore: responses.totalScore,
+          maxPossibleScore: responses.maxPossibleScore,
+          submittedAt: responses.submittedAt,
+          startedAt: responses.startedAt,
+          metadata: responses.metadata,
+        })
+        .from(responses)
+        .innerJoin(assessments, eq(assessments.id, responses.assessmentId))
+        .where(eq(assessments.slug, row.assessmentLinkToken))
+        .orderBy(desc(responses.submittedAt))
+    : [];
+
+  const candidateRows: CandidateRow[] = candidateRowsRaw.map((r) => {
+    const meta = (r.metadata ?? {}) as {
+      tab_blur_count?: number;
+      paste_count?: number;
+      session_loads?: number;
+      start_ip_hash?: string;
+      submit_ip_hash?: string;
+      ai_likelihood_score?: number;
+      style_shift_score?: number;
+      proctoring_flagged?: boolean;
+    };
+    const hasIntegrityIssue =
+      (meta.tab_blur_count ?? 0) >= 3 ||
+      (meta.paste_count ?? 0) >= 3 ||
+      (meta.ai_likelihood_score ?? 0) > 0.7 ||
+      (meta.style_shift_score ?? 0) > 0.6 ||
+      Boolean(meta.proctoring_flagged) ||
+      Boolean(
+        meta.start_ip_hash &&
+          meta.submit_ip_hash &&
+          meta.start_ip_hash !== meta.submit_ip_hash,
+      );
+    return {
+      responseId: r.responseId,
+      candidateName: r.candidateName,
+      candidateEmail: r.candidateEmail,
+      status: r.status,
+      decision:
+        r.status !== "submitted"
+          ? null
+          : r.pass === true
+            ? "hire"
+            : r.pass === false
+              ? "not_hire"
+              : "borderline",
+      totalScore: r.totalScore,
+      maxPossibleScore: r.maxPossibleScore,
+      submittedAt: r.submittedAt?.toISOString() ?? null,
+      hasIntegrityIssue,
+    };
+  });
 
   return (
     <TenantThemeProvider brand={brand} className="contents">
@@ -101,6 +171,28 @@ export default async function AssessmentResultPage({
             )}
           </section>
         ) : null}
+
+        <section className="space-y-3">
+          <header className="flex items-baseline justify-between gap-4">
+            <div>
+              <h2 className="text-base font-semibold">Candidates</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Everyone who has been given this assessment.
+              </p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {candidateRows.length} total
+            </p>
+          </header>
+          {candidateRows.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-border bg-card/40 p-6 text-center text-xs text-muted-foreground">
+              No candidates have opened this assessment yet. Share the link
+              above.
+            </div>
+          ) : (
+            <AssessmentCandidatesTable rows={candidateRows} />
+          )}
+        </section>
 
         <section className="rounded-2xl border border-border bg-card p-5">
           <h2 className="text-sm font-semibold">Sample question preview</h2>

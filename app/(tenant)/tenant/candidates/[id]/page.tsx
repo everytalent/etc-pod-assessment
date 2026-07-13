@@ -97,12 +97,48 @@ export default async function CandidateDetailPage({
     }
   }
 
-  // Integrity findings — translated, sanitised.
+  // Integrity findings — translated, sanitised. Metadata field names
+  // match responses.metadata (tab_blur_count, paste_count, session_loads,
+  // start/submit IP hashes) — not the older *_events names the type
+  // system doesn't enforce.
+  const rawMeta = (row.response.metadata ?? {}) as {
+    tab_blur_count?: number;
+    paste_count?: number;
+    session_loads?: number;
+    start_ip_hash?: string;
+    submit_ip_hash?: string;
+    ai_likelihood_score?: number;
+    style_shift_score?: number;
+    average_response_time_std_dev?: number;
+    proctoring_flagged?: boolean;
+  };
   const ipMatches = await loadIpMatchPartnersFor(id);
   const findings: IntegrityFinding[] = translateRawSignals({
-    copyPasteEvents: (row.response.metadata as { copy_paste_events?: number })?.copy_paste_events ?? 0,
-    tabSwitchEvents: (row.response.metadata as { tab_switch_events?: number })?.tab_switch_events ?? 0,
+    copyPasteEvents: rawMeta.paste_count ?? 0,
+    tabSwitchEvents: rawMeta.tab_blur_count ?? 0,
+    aiLikelihoodScore: rawMeta.ai_likelihood_score,
+    styleShiftScore: rawMeta.style_shift_score,
+    averageResponseTimeStdDev: rawMeta.average_response_time_std_dev,
+    proctoringFlagged: rawMeta.proctoring_flagged,
   });
+  if (
+    rawMeta.start_ip_hash &&
+    rawMeta.submit_ip_hash &&
+    rawMeta.start_ip_hash !== rawMeta.submit_ip_hash
+  ) {
+    findings.unshift({
+      text: "The candidate's network changed between starting and finishing the assessment. Could be a legitimate connection switch or someone else finishing on a different device.",
+      severity: "warn",
+      category: "same_device",
+    });
+  }
+  if ((rawMeta.session_loads ?? 0) >= 4) {
+    findings.unshift({
+      text: `The candidate reloaded the assessment page ${rawMeta.session_loads} times. Often a poor connection, occasionally a sign of stopping and coming back.`,
+      severity: "info",
+      category: "pacing_anomaly",
+    });
+  }
   if (ipMatches.length > 0) {
     findings.unshift({
       text: `This candidate completed the assessment from the same device as ${ipMatches.length} other candidate(s) on this assessment. One person may have completed multiple submissions.`,
