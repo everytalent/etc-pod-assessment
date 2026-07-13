@@ -27,10 +27,11 @@ export function ProgressBar({
   void total;
   const trackRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    trackRef.current?.style.setProperty(
-      "--progress-pct",
-      `${Math.min(100, 8 + current * 6)}%`,
-    );
+    // Sub-linear curve that plateaus around 82% by the soft-cap. The
+    // candidate should never see a bar that reads "you're basically
+    // done" mid-run — the engine decides when to end, not the bar.
+    const pct = Math.round(Math.min(82, Math.sqrt(current) * 17));
+    trackRef.current?.style.setProperty("--progress-pct", `${pct}%`);
   }, [current]);
 
   return (

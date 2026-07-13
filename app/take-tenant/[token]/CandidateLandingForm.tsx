@@ -9,6 +9,12 @@ import { z } from "zod";
 const schema = z.object({
   candidate_name: z.string().trim().min(2).max(120),
   candidate_email: z.string().trim().toLowerCase().email(),
+  candidate_phone: z
+    .string()
+    .trim()
+    .min(6, "Enter the phone number we can reach you on")
+    .max(40)
+    .regex(/^[+0-9()\-\s]+$/, "Digits, spaces, +, - and () only"),
   accessibility_flag: z.boolean(),
 });
 
@@ -74,6 +80,27 @@ export function CandidateLandingForm({ token }: { token: string }) {
         {errors.candidate_email && (
           <span className="text-[0.7rem] text-destructive">
             {errors.candidate_email.message}
+          </span>
+        )}
+      </label>
+      <label className="block text-xs">
+        <span className="block font-medium">
+          Phone number{" "}
+          <span className="font-normal text-muted-foreground">
+            (WhatsApp preferred)
+          </span>
+        </span>
+        <input
+          type="tel"
+          inputMode="tel"
+          autoComplete="tel"
+          placeholder="+234..."
+          {...register("candidate_phone")}
+          className="mt-1 h-10 w-full rounded-lg border border-input bg-background px-3 text-sm"
+        />
+        {errors.candidate_phone && (
+          <span className="text-[0.7rem] text-destructive">
+            {errors.candidate_phone.message}
           </span>
         )}
       </label>

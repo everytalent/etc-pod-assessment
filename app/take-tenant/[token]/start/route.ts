@@ -25,6 +25,12 @@ import {
 const schema = z.object({
   candidate_name: z.string().min(2).max(120),
   candidate_email: z.string().email(),
+  candidate_phone: z
+    .string()
+    .trim()
+    .min(6)
+    .max(40)
+    .regex(/^[+0-9()\-\s]+$/),
   accessibility_flag: z.boolean().default(false),
 });
 
@@ -94,6 +100,7 @@ export async function POST(
       assessmentId: row.assessmentId,
       candidateName: parsed.candidate_name,
       candidateEmail: parsed.candidate_email,
+      candidatePhone: parsed.candidate_phone,
       status: "in_progress",
       metadata,
     })
