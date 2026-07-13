@@ -94,9 +94,11 @@ export async function GET(
 /**
  * DELETE /api/v1/tenant/assessment-banks/:id
  *
- * Removes a bank row entirely. Restricted to banks in a terminal
- * non-success state (failed) — refusing to delete in-flight or
- * completed banks prevents accidental loss of a ready assessment.
+ * Soft-deletes an assessment: sets deleted_at so the tenant's list
+ * views hide it, but the row is retained for the candidate ledger,
+ * audit trail, and any in-flight candidate sessions. Any status is
+ * eligible — hiding a ready bank stops new candidates from starting
+ * without breaking anyone mid-run.
  */
 export async function DELETE(
   _req: Request,
@@ -107,38 +109,20 @@ export async function DELETE(
 
   const { id } = await context.params;
 
-  const [row] = await db
-    .select({
-      id: tenantAssessmentBank.id,
-      status: tenantAssessmentBank.status,
-    })
-    .from(tenantAssessmentBank)
+  const result = await db
+    .update(tenantAssessmentBank)
+    .set({ deletedAt: new Date(), updatedAt: new Date() })
     .where(
       and(
         eq(tenantAssessmentBank.id, id),
         eq(tenantAssessmentBank.tenantId, auth.session.tenant.id),
       ),
     )
-    .limit(1);
+    .returning({ id: tenantAssessmentBank.id });
 
-  if (!row) {
+  if (result.length === 0) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
-  if (row.status !== "failed") {
-    return NextResponse.json(
-      { error: "only_failed_banks_can_be_deleted", current_status: row.status },
-      { status: 409 },
-    );
-  }
-
-  await db
-    .delete(tenantAssessmentBank)
-    .where(
-      and(
-        eq(tenantAssessmentBank.id, id),
-        eq(tenantAssessmentBank.tenantId, auth.session.tenant.id),
-      ),
-    );
 
   return NextResponse.json({ ok: true });
 }

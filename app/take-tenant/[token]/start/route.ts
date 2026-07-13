@@ -10,7 +10,7 @@
  * the link is free.
  */
 
-import { and, eq, gte } from "drizzle-orm";
+import { and, eq, gte, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -69,6 +69,7 @@ export async function POST(
         eq(tenantAssessmentBank.assessmentLinkToken, token),
         eq(tenantAssessmentBank.status, "ready"),
         gte(tenantAssessmentBank.linkExpiresAt, new Date()),
+        isNull(tenantAssessmentBank.deletedAt),
       ),
     )
     .limit(1);

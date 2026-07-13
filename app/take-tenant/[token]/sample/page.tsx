@@ -7,7 +7,7 @@
  * forward them to the existing question runner via /assess/<slug>/session.
  */
 
-import { and, asc, eq, gte } from "drizzle-orm";
+import { and, asc, eq, gte, isNull } from "drizzle-orm";
 import { notFound, redirect } from "next/navigation";
 
 import { db } from "@/lib/db/client";
@@ -52,6 +52,7 @@ export default async function SamplePage({
         eq(tenantAssessmentBank.assessmentLinkToken, token),
         eq(tenantAssessmentBank.status, "ready"),
         gte(tenantAssessmentBank.linkExpiresAt, new Date()),
+        isNull(tenantAssessmentBank.deletedAt),
       ),
     )
     .limit(1);

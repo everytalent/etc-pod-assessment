@@ -6,7 +6,7 @@
  * status flips to 'ready'.
  */
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { getTenantSession } from "@/lib/auth/tenant";
@@ -36,6 +36,7 @@ export default async function WaitingPage({
       and(
         eq(tenantAssessmentBank.id, id),
         eq(tenantAssessmentBank.tenantId, session.tenant.id),
+        isNull(tenantAssessmentBank.deletedAt),
       ),
     )
     .limit(1);

@@ -15,7 +15,7 @@
  *   4. Sample assessment runs first (separate page), then real runner
  */
 
-import { and, eq, gte } from "drizzle-orm";
+import { and, eq, gte, isNull } from "drizzle-orm";
 import { notFound } from "next/navigation";
 
 import { db } from "@/lib/db/client";
@@ -57,6 +57,7 @@ export default async function TenantTakePage({
         eq(tenantAssessmentBank.assessmentLinkToken, token),
         eq(tenantAssessmentBank.status, "ready"),
         gte(tenantAssessmentBank.linkExpiresAt, new Date()),
+        isNull(tenantAssessmentBank.deletedAt),
       ),
     )
     .limit(1);

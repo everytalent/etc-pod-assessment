@@ -8,7 +8,7 @@
  * If the bank isn't ready yet, redirect back to the waiting page.
  */
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { getTenantSession } from "@/lib/auth/tenant";
@@ -43,6 +43,7 @@ export default async function AssessmentResultPage({
       and(
         eq(tenantAssessmentBank.id, id),
         eq(tenantAssessmentBank.tenantId, session.tenant.id),
+        isNull(tenantAssessmentBank.deletedAt),
       ),
     )
     .limit(1);

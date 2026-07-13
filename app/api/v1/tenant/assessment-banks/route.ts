@@ -17,7 +17,7 @@
 
 import { createHash } from "node:crypto";
 
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -119,7 +119,12 @@ export async function POST(req: Request): Promise<NextResponse> {
       createdAt: tenantAssessmentBank.createdAt,
     })
     .from(tenantAssessmentBank)
-    .where(eq(tenantAssessmentBank.intakeTextHash, intakeTextHash))
+    .where(
+      and(
+        eq(tenantAssessmentBank.intakeTextHash, intakeTextHash),
+        isNull(tenantAssessmentBank.deletedAt),
+      ),
+    )
     .limit(1);
   if (existing && existing.status !== "failed") {
     const ageMs = Date.now() - existing.createdAt.getTime();

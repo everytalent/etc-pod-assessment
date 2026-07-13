@@ -7,12 +7,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 
 import { getTenantSession } from "@/lib/auth/tenant";
 import { db } from "@/lib/db/client";
 import { tenantAssessmentBank } from "@/lib/db/schema";
 import { getTenantBrand } from "@/lib/tenant/branding";
+import { DeleteBankButton } from "@/components/tenant/DeleteBankButton";
 import { FailedBankActions } from "@/components/tenant/FailedBankActions";
 import { TenantThemeProvider } from "@/components/tenant/TenantThemeProvider";
 
@@ -37,7 +38,12 @@ export default async function TenantAssessmentsPage() {
       assessmentLinkToken: tenantAssessmentBank.assessmentLinkToken,
     })
     .from(tenantAssessmentBank)
-    .where(eq(tenantAssessmentBank.tenantId, session.tenant.id))
+    .where(
+      and(
+        eq(tenantAssessmentBank.tenantId, session.tenant.id),
+        isNull(tenantAssessmentBank.deletedAt),
+      ),
+    )
     .orderBy(desc(tenantAssessmentBank.createdAt))
     .limit(100);
 
@@ -102,6 +108,7 @@ function BankRow({ bank }: { bank: BankRow }) {
       <div className="flex shrink-0 items-center gap-3">
         <StatusPill status={bank.status} />
         {bank.status === "failed" && <FailedBankActions bankId={bank.id} />}
+        <DeleteBankButton bankId={bank.id} />
       </div>
     </div>
   );

@@ -1819,6 +1819,10 @@ export const tenantAssessmentBank = pgTable(
     costUsd: numeric("cost_usd"),
     durationMs: integer("duration_ms"),
     failureReason: text("failure_reason"),
+    /** Soft-delete timestamp. Non-null = tenant hid this assessment;
+     * all tenant list queries filter deletedAt IS NULL. Retained rows
+     * keep the candidate ledger and audit trail intact. */
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
