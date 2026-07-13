@@ -22,6 +22,7 @@ import {
   assessments,
   questions,
   responses,
+  tenantAssessmentBank,
   type ResponseMetadata,
 } from "@/lib/db/schema";
 import { getCandidateSession } from "@/lib/session";
@@ -55,6 +56,25 @@ export default async function AssessSessionPage({
   }
   if (row.status !== "in_progress") {
     redirect(`/assess/${slug}/done`);
+  }
+
+  // Tenant-created candidate sessions must clear the identity-code
+  // gate before the real runner opens. Direct /take links carry their
+  // originating tenant_bank_id on metadata; if it's set but no
+  // identity_verified_at timestamp exists, bounce back to /verify.
+  const gateMeta = (row.metadata ?? {}) as ResponseMetadata & {
+    tenant_bank_id?: string;
+    identity_verified_at?: string;
+  };
+  if (gateMeta.tenant_bank_id && !gateMeta.identity_verified_at) {
+    const [bankRow] = await db
+      .select({ token: tenantAssessmentBank.assessmentLinkToken })
+      .from(tenantAssessmentBank)
+      .where(eq(tenantAssessmentBank.id, gateMeta.tenant_bank_id))
+      .limit(1);
+    if (bankRow?.token) {
+      redirect(`/take-tenant/${bankRow.token}/verify`);
+    }
   }
 
   // Increment session_loads on every render. First load → 1; each

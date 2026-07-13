@@ -36,7 +36,7 @@ export function SampleRunner({
         </p>
         <button
           type="button"
-          onClick={() => router.push(`/assess/${assessmentSlug}/session`)}
+          onClick={() => router.push(`/take-tenant/${token}/verify`)}
           className="mt-4 inline-flex h-11 items-center rounded-xl px-4 text-sm font-semibold text-white"
           style={{ background: "var(--tenant-primary, #f1b240)" }}
         >
@@ -47,7 +47,7 @@ export function SampleRunner({
   }
 
   const skipToReal = () => {
-    router.push(`/assess/${assessmentSlug}/session`);
+    router.push(`/take-tenant/${token}/verify`);
   };
 
   if (index >= questions.length) {

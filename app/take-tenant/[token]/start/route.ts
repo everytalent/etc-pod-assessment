@@ -21,6 +21,7 @@ import {
   tenantAssessmentBank,
   type ResponseMetadata,
 } from "@/lib/db/schema";
+import { setCandidateSession } from "@/lib/session";
 
 const schema = z.object({
   candidate_name: z.string().min(2).max(120),
@@ -106,6 +107,11 @@ export async function POST(
       metadata,
     })
     .returning({ id: responses.id });
+
+  // Sign the candidate into this response so the /assess/[slug]/session
+  // server component sees a live session and doesn't bounce them back to
+  // a second identity form (name/email again).
+  await setCandidateSession(response.id);
 
   return NextResponse.json({ response_id: response.id });
 }
