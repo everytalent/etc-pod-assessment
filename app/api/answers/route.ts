@@ -92,15 +92,14 @@ export async function POST(req: Request) {
     );
   }
 
+  // Validation-mode CAT serves questions from a shared cross-assessment
+  // pool, so the served question won't always share the response's
+  // assessment_id. The candidate cookie is auth; the question ID is
+  // what identifies the answer target.
   const [question] = await db
     .select()
     .from(questions)
-    .where(
-      and(
-        eq(questions.id, input.question_id),
-        eq(questions.assessmentId, response.assessmentId),
-      ),
-    )
+    .where(eq(questions.id, input.question_id))
     .limit(1);
 
   if (!question) {

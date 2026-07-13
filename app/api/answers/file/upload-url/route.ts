@@ -49,19 +49,27 @@ export async function POST(req: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   }
 
+  // Validation-mode assessments pull questions from a shared cross-
+  // assessment pool by (specialisation × band × level), so a question
+  // legitimately served to the candidate doesn't always share the
+  // response's assessment_id. Auth is the candidate session cookie;
+  // scoping is the response × question × filename storage path.
+  const [responseRow] = await db
+    .select({ id: responses.id })
+    .from(responses)
+    .where(eq(responses.id, responseId))
+    .limit(1);
+  if (!responseRow) {
+    return NextResponse.json({ error: "no_session" }, { status: 401 });
+  }
+
   const [row] = await db
     .select({
       questionId: questions.id,
       questionType: questions.type,
     })
     .from(questions)
-    .innerJoin(responses, eq(responses.id, responseId))
-    .where(
-      and(
-        eq(questions.id, input.question_id),
-        eq(questions.assessmentId, responses.assessmentId),
-      ),
-    )
+    .where(eq(questions.id, input.question_id))
     .limit(1);
 
   if (!row) {

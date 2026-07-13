@@ -40,23 +40,27 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   }
 
-  // Ownership / type check — the question must belong to the assessment
-  // the candidate's response is for, AND be type='open'.
+  // Validation-mode assessments serve questions from a shared cross-
+  // assessment pool by (specialisation × band × level), so a served
+  // question doesn't always share the response's assessment_id. Auth
+  // is the candidate session cookie; the upload path is scoped to
+  // response × question so nothing leaks across candidates.
+  const [responseRow] = await db
+    .select({ id: responses.id })
+    .from(responses)
+    .where(eq(responses.id, responseId))
+    .limit(1);
+  if (!responseRow) {
+    return NextResponse.json({ error: "no_session" }, { status: 401 });
+  }
+
   const [row] = await db
     .select({
       questionId: questions.id,
       questionType: questions.type,
-      assessmentId: questions.assessmentId,
-      responseAssessmentId: responses.assessmentId,
     })
     .from(questions)
-    .innerJoin(responses, eq(responses.id, responseId))
-    .where(
-      and(
-        eq(questions.id, input.question_id),
-        eq(questions.assessmentId, responses.assessmentId),
-      ),
-    )
+    .where(eq(questions.id, input.question_id))
     .limit(1);
 
   if (!row) {
