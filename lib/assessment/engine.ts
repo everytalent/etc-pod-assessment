@@ -248,6 +248,14 @@ export async function getNextQuestion(
     .where(eq(assessments.id, ctx.response.assessmentId))
     .limit(1);
 
+  // Global soft cap. PRD §2a: target 15-20 questions, soft cap ~25-30
+  // as a runaway guard. Until confidence-driven CAT termination lands,
+  // this cap keeps every candidate under a sane ceiling regardless of
+  // bank size. Any answered count at or above the cap ends the run.
+  if (ctx.answers.length >= 25) {
+    return { kind: "end" };
+  }
+
   if (assessment?.mode === "validation" && ctx.answers.length === 0) {
     if (!assessment.specialisation) return { kind: "end" };
     const meta = ctx.response.metadata as ResponseMetadata & {
