@@ -248,10 +248,10 @@ export async function getNextQuestion(
     .where(eq(assessments.id, ctx.response.assessmentId))
     .limit(1);
 
-  // Global soft cap. PRD §2a: target 15-20 questions, soft cap ~25-30
-  // as a runaway guard. Until confidence-driven CAT termination lands,
-  // this cap keeps every candidate under a sane ceiling regardless of
-  // bank size. Any answered count at or above the cap ends the run.
+  // Global soft cap. Real confidence-driven termination runs below;
+  // this remains as a runaway guard for any assessment mode that
+  // bypasses the CAT picker (validation post-first-question, legacy
+  // branching-rules paths, etc.).
   if (ctx.answers.length >= 25) {
     return { kind: "end" };
   }
@@ -278,54 +278,77 @@ export async function getNextQuestion(
   const allQuestions = [
     ...ctx.answeredQuestions,
     ...ctx.unansweredQuestions,
-  ].sort((a, b) => a.orderIndex - b.orderIndex);
+  ];
 
-  if (ctx.answers.length === 0) {
-    const first = allQuestions[0];
-    return first ? { kind: "next", questionId: first.id } : { kind: "end" };
-  }
-
-  const lastAnswer = ctx.answers[ctx.answers.length - 1]!;
-  const lastQuestion = allQuestions.find((q) => q.id === lastAnswer.questionId);
-  if (!lastQuestion) return { kind: "end" };
-
-  const sectionScores: Record<string, number> = {};
-  let runningScore = 0;
-  for (const a of ctx.answers) {
-    runningScore += a.scoreAwarded;
-    const q = allQuestions.find((qq) => qq.id === a.questionId);
-    const section = q?.section;
-    if (section) {
-      sectionScores[section] = (sectionScores[section] ?? 0) + a.scoreAwarded;
+  // Branching rules take priority when the last question has any —
+  // authors use them for explicit skip_to_end / jump_to routing that
+  // should override the adaptive picker.
+  if (ctx.answers.length > 0) {
+    const lastAnswer = ctx.answers[ctx.answers.length - 1]!;
+    const lastQuestion = allQuestions.find(
+      (q) => q.id === lastAnswer.questionId,
+    );
+    if (lastQuestion) {
+      const rules = await db
+        .select()
+        .from(branchingRules)
+        .where(eq(branchingRules.fromQuestionId, lastQuestion.id));
+      if (rules.length > 0) {
+        const sectionScores: Record<string, number> = {};
+        let runningScore = 0;
+        for (const a of ctx.answers) {
+          runningScore += a.scoreAwarded;
+          const q = allQuestions.find((qq) => qq.id === a.questionId);
+          if (q?.section) {
+            sectionScores[q.section] =
+              (sectionScores[q.section] ?? 0) + a.scoreAwarded;
+          }
+        }
+        const action = evaluateBranching(rules, {
+          runningScore,
+          sectionScores,
+          lastSelectedOptions: lastAnswer.selectedOptions,
+        });
+        if (action) {
+          const ordered = [...allQuestions].sort(
+            (a, b) => a.orderIndex - b.orderIndex,
+          );
+          const branched = pickNextQuestion({
+            questions: ordered,
+            currentQuestionId: lastQuestion.id,
+            branchingAction: action,
+          });
+          if (branched.kind === "next") {
+            const already = ctx.answers.some(
+              (a) => a.questionId === branched.questionId,
+            );
+            if (already) return { kind: "end" };
+          }
+          return branched;
+        }
+      }
     }
   }
 
-  const rules = await db
-    .select()
-    .from(branchingRules)
-    .where(eq(branchingRules.fromQuestionId, lastQuestion.id));
-
-  const action = evaluateBranching(rules, {
-    runningScore,
-    sectionScores,
-    lastSelectedOptions: lastAnswer.selectedOptions,
+  // Confidence-driven CAT termination + picker. Maps each unanswered
+  // question to its (id, difficulty) and each prior answer to
+  // (difficulty, score_ratio) so decideNext can update its posterior.
+  const { decideNext } = await import("./cat-termination");
+  const questionById = new Map(allQuestions.map((q) => [q.id, q] as const));
+  const catAnswers = ctx.answers.map((a) => {
+    const q = questionById.get(a.questionId);
+    const difficulty = q?.difficultyScore ?? 5;
+    const points = q?.points ?? 1;
+    const ratio = points > 0 ? Math.min(1, Math.max(0, a.scoreAwarded / points)) : 0;
+    return { difficulty, scoreRatio: ratio };
   });
-
-  const result = pickNextQuestion({
-    questions: allQuestions,
-    currentQuestionId: lastQuestion.id,
-    branchingAction: action,
-  });
-
-  // Runtime cycle guard: if the chosen next is already answered, we're done.
-  if (result.kind === "next") {
-    const alreadyAnswered = ctx.answers.some(
-      (a) => a.questionId === result.questionId,
-    );
-    if (alreadyAnswered) return { kind: "end" };
-  }
-
-  return result;
+  const catCandidates = ctx.unansweredQuestions.map((q) => ({
+    id: q.id,
+    difficulty: q.difficultyScore ?? 5,
+  }));
+  const decision = decideNext(catAnswers, catCandidates);
+  if (decision.kind === "end") return { kind: "end" };
+  return { kind: "next", questionId: decision.questionId };
 }
 
 /**
