@@ -38,9 +38,23 @@ type Initial = {
   total_score: number | null;
   max_possible_score: number;
   submitted_at: string | null;
+  time_spent_seconds: number | null;
   integrity_findings: Finding[];
   submission: SubmissionRow[];
 };
+
+function formatDuration(seconds: number | null): string {
+  if (seconds === null || seconds <= 0) return "—";
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
+function formatDecision(decision: string): string {
+  return decision.replace(/_/g, " ");
+}
 
 export function CandidateDetailClient({ initial }: { initial: Initial }) {
   const router = useRouter();
@@ -93,8 +107,8 @@ export function CandidateDetailClient({ initial }: { initial: Initial }) {
         <p className="text-xs text-muted-foreground">{initial.candidate_email}</p>
       </header>
 
-      <section className="grid gap-4 sm:grid-cols-3">
-        <Stat label="Decision" value={initial.decision} accent />
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat label="Decision" value={formatDecision(initial.decision)} accent />
         <Stat
           label="Score"
           value={
@@ -103,6 +117,7 @@ export function CandidateDetailClient({ initial }: { initial: Initial }) {
               : "—"
           }
         />
+        <Stat label="Time" value={formatDuration(initial.time_spent_seconds)} />
         <Stat label="Status" value={initial.status} />
       </section>
 
@@ -143,49 +158,80 @@ export function CandidateDetailClient({ initial }: { initial: Initial }) {
               : "border-green-300 bg-green-50",
         )}
       >
-        <h2 className="text-sm font-semibold">Integrity report</h2>
-        <ul className="mt-2 space-y-1.5 text-xs">
+        <div className="flex items-center gap-2">
+          <span
+            aria-hidden
+            className={cn(
+              "h-2 w-2 rounded-full",
+              trafficLight === "red"
+                ? "bg-destructive"
+                : trafficLight === "amber"
+                  ? "bg-amber-500"
+                  : "bg-green-500",
+            )}
+          />
+          <h2 className="text-[0.65rem] font-semibold uppercase tracking-wider text-foreground">
+            Integrity report
+          </h2>
+        </div>
+        <ul className="mt-3 space-y-1.5 text-xs leading-relaxed text-foreground">
           {initial.integrity_findings.map((f, i) => (
-            <li key={i} className="leading-snug">
-              {f.text}
+            <li key={i} className="flex gap-2">
+              <span aria-hidden className="mt-1 shrink-0 text-muted-foreground">
+                •
+              </span>
+              <span>{f.text}</span>
             </li>
           ))}
         </ul>
       </section>
 
       <section>
-        <h2 className="text-base font-semibold">Per-question submission</h2>
+        <h2 className="text-[0.65rem] font-semibold uppercase tracking-wider text-muted-foreground">
+          Per-question submission
+        </h2>
         <div className="mt-3 space-y-3">
-          {initial.submission.map((s) => (
+          {initial.submission.map((s, idx) => (
             <article
               key={s.question_id}
-              className="rounded-2xl border border-border bg-card p-4 text-xs"
+              className="rounded-2xl border border-border bg-card p-5 text-xs shadow-sm"
             >
-              <p className="font-medium text-foreground">{s.question_text}</p>
-              <p className="mt-2 whitespace-pre-wrap rounded-lg bg-muted/40 p-2 text-muted-foreground">
-                {s.candidate_answer_text ?? "(no answer captured)"}
+              <div className="flex items-baseline gap-2">
+                <span className="text-[0.65rem] font-semibold text-muted-foreground">
+                  Q{idx + 1}
+                </span>
+                <p className="font-medium leading-relaxed text-foreground">
+                  {s.question_text}
+                </p>
+              </div>
+              <p className="mt-3 whitespace-pre-wrap rounded-lg bg-muted/40 p-3 text-foreground">
+                {s.candidate_answer_text ?? (
+                  <span className="italic text-muted-foreground">
+                    (no answer captured)
+                  </span>
+                )}
               </p>
-              <dl className="mt-3 grid grid-cols-3 gap-2 text-[0.65rem]">
+              <dl className="mt-4 grid grid-cols-3 gap-2 text-[0.65rem]">
                 <ScoreCell label="Algorithm" value={s.ai_auto_score} />
                 <ScoreCell label="Mark" value={s.points_awarded} />
                 <ScoreCell label="Final" value={s.final_score} />
               </dl>
               {s.ai_rationale && (
-                <p className="mt-2 text-[0.65rem] italic text-muted-foreground">
+                <p className="mt-3 rounded-lg border border-border/60 bg-muted/20 p-2 text-[0.65rem] italic text-muted-foreground">
                   {s.ai_rationale}
                 </p>
               )}
               {s.override && (
-                <p className="mt-2 rounded-lg border border-etc-marigold bg-etc-marigold/10 p-2 text-[0.65rem] text-etc-black">
-                  Score overridden ({s.override.reason_category}):{" "}
-                  {s.override.reason_text}
+                <p className="mt-3 rounded-lg border border-etc-marigold bg-etc-marigold/10 p-2 text-[0.65rem] text-etc-black">
+                  <span className="font-semibold">Score overridden</span>{" "}
+                  ({s.override.reason_category}): {s.override.reason_text}
                 </p>
               )}
-              <div className="mt-3 flex justify-end">
+              <div className="mt-4 flex justify-end border-t border-border/40 pt-3">
                 <button
                   type="button"
                   onClick={() => setOpenOverrideFor(s.question_id)}
-                  className="text-[0.65rem] font-medium text-foreground underline-offset-2 hover:underline"
+                  className="text-[0.7rem] font-semibold text-foreground underline-offset-4 hover:underline"
                 >
                   Override score
                 </button>

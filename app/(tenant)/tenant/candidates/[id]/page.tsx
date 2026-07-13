@@ -112,6 +112,18 @@ export default async function CandidateDetailPage({
   }
 
   // The serialiser is the chokepoint — strips internals + rebrands.
+  const timeSpentSeconds =
+    row.response.startedAt && row.response.submittedAt
+      ? Math.max(
+          0,
+          Math.round(
+            (row.response.submittedAt.getTime() -
+              row.response.startedAt.getTime()) /
+              1000,
+          ),
+        )
+      : null;
+
   const serialised = serialiseForTenant({
     response_id: row.response.id,
     candidate_name: row.response.candidateName,
@@ -122,6 +134,7 @@ export default async function CandidateDetailPage({
     total_score: row.response.totalScore,
     max_possible_score: row.response.maxPossibleScore,
     submitted_at: row.response.submittedAt?.toISOString() ?? null,
+    time_spent_seconds: timeSpentSeconds,
     integrity_findings: findings,
     submission: submission.map((s) => ({
       answer_id: s.answerId,
