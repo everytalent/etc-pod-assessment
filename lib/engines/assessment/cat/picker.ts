@@ -101,8 +101,17 @@ async function pickFromCell(
       ? sql`ABS(COALESCE(${questions.difficultyScore}, 5) - ${targetDifficulty})`
       : sql`RANDOM()`;
 
+  // Specialisation match is fuzzy on purpose. Question banks are tagged
+  // by the skillboard authoring tool (e.g. "Solar installation
+  // specialist") while validation assessments store a shorter role
+  // label ("Solar Installation"). Both should route to the same
+  // question pool. We match case-insensitively via prefix in EITHER
+  // direction so drift on either side doesn't dead-end a candidate.
   const conditions = [
-    eq(questions.specialisation, specialisation),
+    sql`(
+      LOWER(${questions.specialisation}) LIKE LOWER(${specialisation}) || '%'
+      OR LOWER(${specialisation}) LIKE LOWER(${questions.specialisation}) || '%'
+    )`,
     eq(questions.band, band),
     eq(questions.level, level),
     // Only questions whose anchor task belongs to an active skillboard.
