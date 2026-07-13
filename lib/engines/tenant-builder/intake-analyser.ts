@@ -132,6 +132,8 @@ export async function analyseIntake(args: {
   intakeType: TenantIntakeType;
   intakeText: string;
   contextText: string | null;
+  claimedSeniority?: "junior" | "mid" | "senior" | null;
+  roleLocation?: string | null;
 }): Promise<IntakeAnalysis> {
   // Belt-and-suspenders: rows created before the API-entry sanitiser
   // landed may still hold U+2028 / control chars that trip fetch's
@@ -158,7 +160,20 @@ export async function analyseIntake(args: {
   const raw = result.text
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "");
-  return intakeAnalysisSchema.parse(JSON.parse(raw));
+  const analysis = intakeAnalysisSchema.parse(JSON.parse(raw));
+
+  // Tenant-declared overrides win over LLM guesses. When the tenant
+  // knows the seniority band, don't second-guess them.
+  if (args.claimedSeniority) {
+    analysis.seniority_hint = args.claimedSeniority;
+  }
+  if (args.roleLocation) {
+    const loc = sanitiseUserText(args.roleLocation).trim();
+    if (loc && !analysis.region_cues.includes(loc)) {
+      analysis.region_cues = [loc, ...analysis.region_cues];
+    }
+  }
+  return analysis;
 }
 
 function escapeXml(s: string): string {

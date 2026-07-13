@@ -53,6 +53,8 @@ export async function processOneTenantBank(
       intakeType: bank.intakeType,
       intakeText: bank.intakeText,
       contextText: bank.contextText,
+      claimedSeniority: bank.claimedSeniority,
+      roleLocation: bank.roleLocation,
     });
 
     // Stage 2: calibrating (match → provisional fallback).
@@ -103,6 +105,7 @@ export async function processOneTenantBank(
       tenantBankId: bank.id,
       specialisation: resolvedSpecialisation,
       tenantSuppliedQuestions: bank.tenantSuppliedQuestions,
+      roleLocation: bank.roleLocation,
     });
 
     // Stage 4: finalising.

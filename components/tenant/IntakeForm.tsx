@@ -72,6 +72,10 @@ export function IntakeForm() {
   const [intakeType, setIntakeType] = useState<IntakeType>("job_description");
   const [intakeText, setIntakeText] = useState("");
   const [contextText, setContextText] = useState("");
+  const [claimedSeniority, setClaimedSeniority] = useState<
+    "junior" | "mid" | "senior" | null
+  >(null);
+  const [roleLocation, setRoleLocation] = useState("");
   const [wantsOwnQuestions, setWantsOwnQuestions] = useState<boolean | null>(null);
   const [questionsRaw, setQuestionsRaw] = useState("");
   const [batchTreatment, setBatchTreatment] = useState<Treatment>("improve");
@@ -155,6 +159,8 @@ export function IntakeForm() {
       intake_type: intakeType,
       intake_text: intakeText.trim(),
       context_text: contextText.trim() || null,
+      claimed_seniority: claimedSeniority,
+      role_location: roleLocation.trim() || null,
       tenant_supplied_questions: parsedQuestions.map((q) => ({
         text: q,
         treatment: batchTreatment,
@@ -457,6 +463,56 @@ export function IntakeForm() {
             />
           </label>
 
+          <fieldset>
+            <legend className="text-xs font-medium">Seniority level</legend>
+            <p className="mt-1 text-[0.65rem] text-muted-foreground">
+              Optional. If you know the level, tell us and we bias the question
+              mix accordingly (senior roles get more case-study scenarios;
+              junior roles get more short knowledge checks). Otherwise the
+              algorithm reads it from the role.
+            </p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-4">
+              <SeniorityChip
+                checked={claimedSeniority === null}
+                onChange={() => setClaimedSeniority(null)}
+                label="Let algorithm decide"
+              />
+              <SeniorityChip
+                checked={claimedSeniority === "junior"}
+                onChange={() => setClaimedSeniority("junior")}
+                label="Junior"
+              />
+              <SeniorityChip
+                checked={claimedSeniority === "mid"}
+                onChange={() => setClaimedSeniority("mid")}
+                label="Mid"
+              />
+              <SeniorityChip
+                checked={claimedSeniority === "senior"}
+                onChange={() => setClaimedSeniority("senior")}
+                label="Senior"
+              />
+            </div>
+          </fieldset>
+
+          <label className="block">
+            <span className="text-xs font-medium">
+              Role location (optional)
+            </span>
+            <p className="mt-1 text-[0.65rem] text-muted-foreground">
+              City / country. Used so questions reference the right currency,
+              regulations, and local context.
+            </p>
+            <input
+              type="text"
+              value={roleLocation}
+              onChange={(e) => setRoleLocation(e.target.value)}
+              maxLength={120}
+              placeholder="Lagos, Nigeria"
+              className="mt-1 h-10 w-full rounded-lg border border-input bg-background px-3 text-sm"
+            />
+          </label>
+
           <div className="flex justify-end">
             <button
               type="button"
@@ -665,6 +721,31 @@ function RadioCard({
     >
       <p className="text-sm font-semibold">{title}</p>
       <p className="mt-1 text-[0.7rem] text-muted-foreground">{hint}</p>
+    </button>
+  );
+}
+
+function SeniorityChip({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onChange}
+      className={cn(
+        "h-10 rounded-lg border px-3 text-xs font-semibold transition-colors",
+        checked
+          ? "border-foreground bg-foreground/5 text-foreground"
+          : "border-border bg-card text-muted-foreground hover:border-etc-marigold",
+      )}
+    >
+      {label}
     </button>
   );
 }

@@ -1785,6 +1785,14 @@ export const tenantAssessmentBank = pgTable(
       .default("paste"),
     intakeUploadFilename: text("intake_upload_filename"),
     contextText: text("context_text"),
+    /** Tenant-declared seniority for the target hire. Nullable — when
+     * null the intake analyser extracts a seniority hint from the JD text.
+     * When set, it overrides the LLM-extracted hint and biases the
+     * question-type mix (senior → case-study/scenario, junior → MCQ). */
+    claimedSeniority: seniorityBandEnum("claimed_seniority"),
+    /** Free text location for the role (city / country). Feeds the
+     * generator so questions use the correct currency and local context. */
+    roleLocation: text("role_location"),
     /** Array of { text, treatment, source } objects from Step 2. */
     tenantSuppliedQuestions: jsonb("tenant_supplied_questions").$type<
       TenantSuppliedQuestion[]

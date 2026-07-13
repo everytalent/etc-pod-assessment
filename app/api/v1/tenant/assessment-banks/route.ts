@@ -45,6 +45,16 @@ const inputSchema = z.object({
     .transform((v) => (v == null ? v : sanitiseUserText(v))),
   intake_source: z.enum(["paste", "upload"]).default("paste"),
   intake_upload_filename: z.string().max(200).nullable().optional(),
+  claimed_seniority: z
+    .enum(["junior", "mid", "senior"])
+    .nullable()
+    .optional(),
+  role_location: z
+    .string()
+    .max(120)
+    .transform((v) => sanitiseUserText(v).trim())
+    .nullable()
+    .optional(),
   tenant_supplied_questions: z
     .array(
       tenantQuestionSchema.extend({
@@ -135,6 +145,8 @@ export async function POST(req: Request): Promise<NextResponse> {
       intakeSource: parsed.intake_source,
       intakeUploadFilename: parsed.intake_upload_filename ?? null,
       contextText: parsed.context_text ?? null,
+      claimedSeniority: parsed.claimed_seniority ?? null,
+      roleLocation: parsed.role_location || null,
       tenantSuppliedQuestions: parsed.tenant_supplied_questions ?? null,
       status: "queued",
     })
