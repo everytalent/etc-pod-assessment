@@ -4,6 +4,7 @@ import {
   decideNext,
   MAX_QUESTIONS,
   MIN_QUESTIONS,
+  priorMeanForBand,
   SE_STOP_THRESHOLD,
   type CatAnswer,
   type CatCandidateQuestion,
@@ -108,5 +109,83 @@ describe("decideNext", () => {
     expect(decision.kind).toBe("end");
     if (decision.kind !== "end") throw new Error();
     expect(decision.reason).toBe("no_more_questions");
+  });
+
+  it("anchors the prior at 3/5/7 for junior/mid/senior", () => {
+    expect(priorMeanForBand("junior")).toBe(3);
+    expect(priorMeanForBand("mid")).toBe(5);
+    expect(priorMeanForBand("senior")).toBe(7);
+    expect(priorMeanForBand(null)).toBe(5);
+    expect(priorMeanForBand(undefined)).toBe(5);
+  });
+
+  it("terminates faster for a senior candidate who answers well when the prior is set", () => {
+    const scoreForDifficulty = (d: number) => (d <= 7 ? 1 : 0.3);
+    // Same run twice: once with default prior (mean 5), once anchored
+    // at senior (mean 7). The senior-anchored run should reach the
+    // confidence threshold in strictly fewer or equal questions.
+    const runWith = (band?: "senior") => {
+      const answers: CatAnswer[] = [];
+      let remaining = pool();
+      for (let step = 0; step < 40; step++) {
+        const decision = decideNext(answers, remaining, {
+          claimedBand: band ?? null,
+        });
+        if (decision.kind === "end") return answers.length;
+        const q = remaining.find((c) => c.id === decision.questionId)!;
+        answers.push({
+          difficulty: q.difficulty,
+          scoreRatio: scoreForDifficulty(q.difficulty),
+        });
+        remaining = remaining.filter((c) => c.id !== q.id);
+      }
+      throw new Error("never terminated");
+    };
+    const withoutPrior = runWith();
+    const withSeniorPrior = runWith("senior");
+    expect(withSeniorPrior).toBeLessThanOrEqual(withoutPrior);
+  });
+
+  it("respects the per-skill exposure cap so one skill can't dominate", () => {
+    // Six items, two skills, three per skill. Cap at 2 per skill.
+    const candidates: CatCandidateQuestion[] = [
+      { id: "a1", difficulty: 5, skillId: "A" },
+      { id: "a2", difficulty: 5, skillId: "A" },
+      { id: "a3", difficulty: 5, skillId: "A" },
+      { id: "b1", difficulty: 5, skillId: "B" },
+      { id: "b2", difficulty: 5, skillId: "B" },
+      { id: "b3", difficulty: 5, skillId: "B" },
+    ];
+    const answers: CatAnswer[] = [
+      { difficulty: 5, scoreRatio: 1, skillId: "A" },
+      { difficulty: 5, scoreRatio: 1, skillId: "A" },
+    ];
+    const decision = decideNext(
+      answers,
+      candidates.filter((c) => c.id !== "a1" && c.id !== "a2"),
+      { maxPerSkill: 2 },
+    );
+    expect(decision.kind).toBe("next");
+    if (decision.kind !== "next") throw new Error();
+    // Skill A already has 2 answers; picker must go to skill B.
+    const picked = candidates.find((c) => c.id === decision.questionId);
+    expect(picked?.skillId).toBe("B");
+  });
+
+  it("falls back to the full pool when every candidate exceeds the cap", () => {
+    const candidates: CatCandidateQuestion[] = [
+      { id: "a3", difficulty: 5, skillId: "A" },
+    ];
+    const answers: CatAnswer[] = [
+      { difficulty: 5, scoreRatio: 1, skillId: "A" },
+      { difficulty: 5, scoreRatio: 1, skillId: "A" },
+    ];
+    const decision = decideNext(answers, candidates, { maxPerSkill: 2 });
+    // Cap technically excludes a3 (skill A already at 2), but the
+    // fallback preserves it rather than terminating early. Answers
+    // length (2) is below MIN_QUESTIONS so the picker still runs.
+    expect(decision.kind).toBe("next");
+    if (decision.kind !== "next") throw new Error();
+    expect(decision.questionId).toBe("a3");
   });
 });

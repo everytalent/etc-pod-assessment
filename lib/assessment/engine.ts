@@ -243,7 +243,11 @@ export async function getNextQuestion(
   // advanceValidationFlow — we should not be reached again for
   // validation-mode mid-session.
   const [assessment] = await db
-    .select({ mode: assessments.mode, specialisation: assessments.specialisation })
+    .select({
+      mode: assessments.mode,
+      specialisation: assessments.specialisation,
+      slug: assessments.slug,
+    })
     .from(assessments)
     .where(eq(assessments.id, ctx.response.assessmentId))
     .limit(1);
@@ -331,8 +335,9 @@ export async function getNextQuestion(
   }
 
   // Confidence-driven CAT termination + picker. Maps each unanswered
-  // question to its (id, difficulty) and each prior answer to
-  // (difficulty, score_ratio) so decideNext can update its posterior.
+  // question to its (id, difficulty, exposure axis) and each prior
+  // answer to (difficulty, score_ratio, exposure axis) so decideNext
+  // can update its posterior and enforce content balancing.
   const { decideNext } = await import("./cat-termination");
   const questionById = new Map(allQuestions.map((q) => [q.id, q] as const));
   const catAnswers = ctx.answers.map((a) => {
@@ -340,13 +345,44 @@ export async function getNextQuestion(
     const difficulty = q?.difficultyScore ?? 5;
     const points = q?.points ?? 1;
     const ratio = points > 0 ? Math.min(1, Math.max(0, a.scoreAwarded / points)) : 0;
-    return { difficulty, scoreRatio: ratio };
+    return { difficulty, scoreRatio: ratio, skillId: q?.taskId ?? null };
   });
   const catCandidates = ctx.unansweredQuestions.map((q) => ({
     id: q.id,
     difficulty: q.difficultyScore ?? 5,
+    skillId: q.taskId ?? null,
   }));
-  const decision = decideNext(catAnswers, catCandidates);
+
+  // Prior: read from the tenant bank's claimed_seniority when this is a
+  // tenant-generated assessment; otherwise from the candidate's
+  // self-declared claimed_band on the response metadata (validation
+  // flow). Both are optional — if neither is set, decideNext uses the
+  // neutral mid prior (mean 5).
+  let claimedBand: "junior" | "mid" | "senior" | null = null;
+  if (assessment?.slug) {
+    const { tenantAssessmentBank } = await import("@/lib/db/schema");
+    const [bank] = await db
+      .select({ claimedSeniority: tenantAssessmentBank.claimedSeniority })
+      .from(tenantAssessmentBank)
+      .where(eq(tenantAssessmentBank.assessmentLinkToken, assessment.slug))
+      .limit(1);
+    if (bank?.claimedSeniority) claimedBand = bank.claimedSeniority;
+  }
+  if (!claimedBand) {
+    const meta = ctx.response.metadata as ResponseMetadata & {
+      claimed_band?: "junior" | "mid" | "senior";
+    };
+    if (meta.claimed_band) claimedBand = meta.claimed_band;
+  }
+
+  const decision = decideNext(catAnswers, catCandidates, {
+    claimedBand,
+    // Cap: no single task contributes more than 4 answers in one run
+    // (so a 12-question run sees at least 3 different tasks). Won't
+    // over-filter to zero — decideNext falls back to the full pool if
+    // every candidate is capped.
+    maxPerSkill: 4,
+  });
   if (decision.kind === "end") return { kind: "end" };
   return { kind: "next", questionId: decision.questionId };
 }

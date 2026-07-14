@@ -36,9 +36,26 @@ const GRID_SIZE = 101;
 const GRID_MIN = 0;
 const GRID_MAX = 10;
 const GRID_STEP = (GRID_MAX - GRID_MIN) / (GRID_SIZE - 1);
-const PRIOR_MEAN = 5;
+const DEFAULT_PRIOR_MEAN = 5;
 const PRIOR_SD = 2.0;
 const LIKELIHOOD_SLOPE = 1.0;
+
+/**
+ * Map a declared band to a prior mean on the 0-10 theta scale.
+ * Junior anchors low, mid centres, senior anchors high. SD stays wide
+ * (2.0) so a mis-stated band gets corrected within a few probes.
+ */
+const BAND_PRIOR_MEAN: Record<"junior" | "mid" | "senior", number> = {
+  junior: 3,
+  mid: 5,
+  senior: 7,
+};
+
+export function priorMeanForBand(
+  band?: "junior" | "mid" | "senior" | null,
+): number {
+  return band ? BAND_PRIOR_MEAN[band] : DEFAULT_PRIOR_MEAN;
+}
 
 export const MIN_QUESTIONS = 8;
 export const MAX_QUESTIONS = 25;
@@ -47,6 +64,9 @@ export const SE_STOP_THRESHOLD = 0.7;
 export type CatAnswer = {
   difficulty: number;
   scoreRatio: number;
+  /** Optional exposure-axis id (task, skill, or section). When set with
+   * options.maxPerSkill, the picker caps per-axis question count. */
+  skillId?: string | null;
 };
 
 export type CatDecision =
@@ -56,6 +76,25 @@ export type CatDecision =
 export type CatCandidateQuestion = {
   id: string;
   difficulty: number;
+  /** Optional exposure-axis id (task, skill, or section). When set with
+   * options.maxPerSkill, the picker caps per-axis question count. */
+  skillId?: string | null;
+};
+
+export type DecideOptions = {
+  /**
+   * Candidate's self-declared or tenant-declared band. Anchors the
+   * prior mean on the theta scale. Null falls back to the neutral
+   * mid prior (mean 5).
+   */
+  claimedBand?: "junior" | "mid" | "senior" | null;
+  /**
+   * Cap on how many questions can come from a single skill within
+   * one run. Guarantees the picker spreads coverage across skills
+   * even when one skill has many high-information items. Set to 0
+   * or omit to disable.
+   */
+  maxPerSkill?: number;
 };
 
 export type TerminationReason =
@@ -84,11 +123,11 @@ function buildGrid(): number[] {
   return g;
 }
 
-function priorLogWeights(grid: number[]): number[] {
+function priorLogWeights(grid: number[], priorMean: number): number[] {
   const w = new Array<number>(GRID_SIZE);
   const twoSigmaSq = 2 * PRIOR_SD * PRIOR_SD;
   for (let i = 0; i < GRID_SIZE; i++) {
-    const d = grid[i]! - PRIOR_MEAN;
+    const d = grid[i]! - priorMean;
     w[i] = -(d * d) / twoSigmaSq;
   }
   return w;
@@ -157,9 +196,11 @@ function summarise(
 export function decideNext(
   answers: CatAnswer[],
   candidates: CatCandidateQuestion[],
+  options: DecideOptions = {},
 ): CatDecision {
+  const priorMean = priorMeanForBand(options.claimedBand);
   const grid = buildGrid();
-  const logWeights = priorLogWeights(grid);
+  const logWeights = priorLogWeights(grid, priorMean);
   for (const a of answers) accumulateLikelihood(logWeights, grid, a);
   const posterior = summarise(logWeights, grid, answers.length);
 
@@ -176,10 +217,30 @@ export function decideNext(
     return { kind: "end", posterior, reason: "no_more_questions" };
   }
 
+  // Skill-exposure control: exclude candidate questions from skills
+  // that have already contributed maxPerSkill answers this run. Only
+  // applies when maxPerSkill is set and questions carry skillId.
+  let eligible = candidates;
+  const cap = options.maxPerSkill ?? 0;
+  if (cap > 0) {
+    const perSkillCount = new Map<string, number>();
+    for (const a of answers) {
+      if (!a.skillId) continue;
+      perSkillCount.set(a.skillId, (perSkillCount.get(a.skillId) ?? 0) + 1);
+    }
+    const filtered = candidates.filter((c) => {
+      if (!c.skillId) return true;
+      return (perSkillCount.get(c.skillId) ?? 0) < cap;
+    });
+    // Never over-filter to zero: if every candidate hits the cap,
+    // fall back to the full pool rather than terminating early.
+    if (filtered.length > 0) eligible = filtered;
+  }
+
   // Information-maximising pick: minimise |difficulty - mean|.
   let best: CatCandidateQuestion | null = null;
   let bestGap = Infinity;
-  for (const q of candidates) {
+  for (const q of eligible) {
     const gap = Math.abs(q.difficulty - posterior.mean);
     if (gap < bestGap) {
       bestGap = gap;
