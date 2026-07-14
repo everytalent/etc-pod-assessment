@@ -95,7 +95,22 @@ export type DecideOptions = {
    * or omit to disable.
    */
   maxPerSkill?: number;
+  /**
+   * Item-exposure control. Instead of always picking the single
+   * best-information question, take the top N by information and
+   * choose one uniformly at random. Prevents the same "perfect"
+   * question being served to every similar-ability candidate,
+   * which would let items leak fast. Default 3. Set to 1 to
+   * restore deterministic single-best picking.
+   */
+  pickPoolSize?: number;
+  /**
+   * Test seam: swap in a deterministic RNG. Defaults to Math.random.
+   */
+  random?: () => number;
 };
+
+const DEFAULT_PICK_POOL_SIZE = 3;
 
 export type TerminationReason =
   | "confidence_reached"
@@ -237,18 +252,20 @@ export function decideNext(
     if (filtered.length > 0) eligible = filtered;
   }
 
-  // Information-maximising pick: minimise |difficulty - mean|.
-  let best: CatCandidateQuestion | null = null;
-  let bestGap = Infinity;
-  for (const q of eligible) {
-    const gap = Math.abs(q.difficulty - posterior.mean);
-    if (gap < bestGap) {
-      bestGap = gap;
-      best = q;
-    }
-  }
-  if (!best) {
+  // Information-maximising pick with top-K randomisation for item
+  // exposure control. Rank eligible questions by |difficulty - mean|
+  // (ascending), take the top K, then pick one uniformly at random.
+  // K=1 restores deterministic single-best picking.
+  const poolSize = Math.max(1, options.pickPoolSize ?? DEFAULT_PICK_POOL_SIZE);
+  const rng = options.random ?? Math.random;
+  const ranked = eligible
+    .map((q) => ({ q, gap: Math.abs(q.difficulty - posterior.mean) }))
+    .sort((a, b) => a.gap - b.gap)
+    .slice(0, poolSize);
+  if (ranked.length === 0) {
     return { kind: "end", posterior, reason: "no_more_questions" };
   }
-  return { kind: "next", questionId: best.id, posterior };
+  const pickIndex = Math.min(ranked.length - 1, Math.floor(rng() * ranked.length));
+  const chosen = ranked[pickIndex]!.q;
+  return { kind: "next", questionId: chosen.id, posterior };
 }

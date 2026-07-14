@@ -83,7 +83,7 @@ describe("decideNext", () => {
     expect(decision.kind).toBe("next");
   });
 
-  it("prefers next question closest to current posterior mean", () => {
+  it("prefers next question closest to current posterior mean (pickPoolSize=1)", () => {
     const answers: CatAnswer[] = [
       { difficulty: 5, scoreRatio: 1 },
       { difficulty: 6, scoreRatio: 1 },
@@ -94,10 +94,51 @@ describe("decideNext", () => {
       { id: "on-target", difficulty: 7 },
       { id: "far-high", difficulty: 10 },
     ];
-    const decision = decideNext(answers, candidates);
+    const decision = decideNext(answers, candidates, { pickPoolSize: 1 });
     expect(decision.kind).toBe("next");
     if (decision.kind !== "next") throw new Error();
     expect(decision.questionId).toBe("on-target");
+  });
+
+  it("spreads picks across the top-K by information for item-exposure control", () => {
+    // Prior mean starts at 5. Three items sit equidistant around it;
+    // one item is far away. Top-3 should be the three near items;
+    // the far item should never be picked.
+    const candidates: CatCandidateQuestion[] = [
+      { id: "near-4", difficulty: 4 },
+      { id: "near-5", difficulty: 5 },
+      { id: "near-6", difficulty: 6 },
+      { id: "far", difficulty: 10 },
+    ];
+    const picks = new Set<string>();
+    // Deterministic RNG: cycle through fractional values so all three
+    // top-K positions get hit.
+    const seq = [0.01, 0.4, 0.7];
+    for (const r of seq) {
+      const decision = decideNext([], candidates, {
+        pickPoolSize: 3,
+        random: () => r,
+      });
+      if (decision.kind !== "next") throw new Error();
+      picks.add(decision.questionId);
+    }
+    expect(picks.has("far")).toBe(false);
+    expect(picks.size).toBeGreaterThanOrEqual(2);
+  });
+
+  it("default pickPoolSize is >1 so identical states don't always pick the same question", () => {
+    const candidates: CatCandidateQuestion[] = [
+      { id: "a", difficulty: 5 },
+      { id: "b", difficulty: 5 },
+      { id: "c", difficulty: 5 },
+    ];
+    const seen = new Set<string>();
+    for (const r of [0, 0.34, 0.67]) {
+      const decision = decideNext([], candidates, { random: () => r });
+      if (decision.kind !== "next") throw new Error();
+      seen.add(decision.questionId);
+    }
+    expect(seen.size).toBeGreaterThan(1);
   });
 
   it("ends when the pool is exhausted", () => {
