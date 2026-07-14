@@ -427,6 +427,26 @@ export async function finalizeResponse(
   );
 
   const path = ctx.answers.map((a) => a.questionId);
+
+  // Compute integrity signals from the response's text answers so the
+  // tenant integrity report has real numbers to render.
+  const { computeIntegrityScores } = await import("./integrity-scoring");
+  const answerTexts = ctx.answers
+    .map((a) => ({
+      text: (a.textResponse ?? a.transcript ?? "").toString(),
+      timeSpentSeconds: a.timeSpentSeconds ?? 0,
+    }))
+    .filter((a) => a.text.trim().length > 0);
+  const priorMeta = ctx.response.metadata as ResponseMetadata & {
+    paste_count?: number;
+    tab_blur_count?: number;
+  };
+  const integrityScores = computeIntegrityScores({
+    answers: answerTexts,
+    pasteCount: priorMeta.paste_count,
+    tabBlurCount: priorMeta.tab_blur_count,
+  });
+
   const metadata: ResponseMetadata = {
     ...ctx.response.metadata,
     path,
@@ -436,7 +456,9 @@ export async function finalizeResponse(
         (Date.now() - ctx.response.startedAt.getTime()) / 1000,
       ),
     ...(submitIpHash ? { submit_ip_hash: submitIpHash } : {}),
-  };
+    ai_likelihood_score: integrityScores.aiLikelihoodScore,
+    style_shift_score: integrityScores.styleShiftScore,
+  } as ResponseMetadata;
 
   await db
     .update(responses)
