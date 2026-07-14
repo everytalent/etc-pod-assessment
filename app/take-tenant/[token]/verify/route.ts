@@ -172,14 +172,13 @@ export async function POST(
   const nextAttempts = state.attempts + 1;
 
   if (submitted !== state.code_hash) {
+    const bumped: VerifyMetadata = {
+      ...meta,
+      identity_verify: { ...state, attempts: nextAttempts },
+    };
     await db
       .update(responses)
-      .set({
-        metadata: {
-          ...meta,
-          identity_verify: { ...state, attempts: nextAttempts },
-        },
-      })
+      .set({ metadata: bumped })
       .where(eq(responses.id, responseId));
     return NextResponse.json(
       {
