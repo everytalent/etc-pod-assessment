@@ -15,6 +15,7 @@ import Link from "next/link";
 
 import { notFound } from "next/navigation";
 
+import { BackfillQuestionsButton } from "@/components/admin/BackfillQuestionsButton";
 import { requireAdminApi } from "@/lib/auth/admin";
 import {
   canAccessSkillboards,
@@ -68,6 +69,10 @@ export default async function SkillboardsListPage() {
         >
           + New skillboard
         </Link>
+      </div>
+
+      <div className="mb-6">
+        <BackfillQuestionsButton />
       </div>
 
       {boards.length === 0 ? (
