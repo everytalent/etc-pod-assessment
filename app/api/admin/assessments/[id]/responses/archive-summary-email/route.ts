@@ -159,6 +159,6 @@ function renderSummaryHtml(args: SummaryHtmlArgs): string {
     </a>
   </p>
 
-  <p style="color:#9ca3af;font-size:12px;margin:0;">Energy Talent Company &middot; etc-pod-assessment</p>
+  <p style="color:#9ca3af;font-size:12px;margin:0;">Every Talent Company &middot; etc-pod-assessment</p>
 </div>`;
 }

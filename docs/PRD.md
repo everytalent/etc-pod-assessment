@@ -12,7 +12,7 @@
 
 ## Problem
 
-Energy Talent Company requires a scalable, intelligent system to vet candidates for:
+Every Talent Company requires a scalable, intelligent system to vet candidates for:
 
 - Solar Tech roles
 - Business Development (BD) roles

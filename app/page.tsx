@@ -30,7 +30,7 @@ export default async function Home() {
     <main className="mx-auto flex min-h-dvh max-w-4xl flex-col px-6 py-16">
       <header className="mb-12">
         <p className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">
-          Energy Talent Co · POD OS
+          Every Talent Co · POD OS
         </p>
         <h1 className="mt-4 text-4xl font-bold tracking-tight sm:text-5xl">
           Solar Talent Assessments
@@ -85,7 +85,7 @@ export default async function Home() {
 
       <footer className="mt-16 text-xs text-muted-foreground">
         <p>
-          Energy Talent Company &middot; POD project assessment platform
+          Every Talent Company &middot; POD project assessment platform
         </p>
       </footer>
     </main>

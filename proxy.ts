@@ -2,9 +2,14 @@
  * Root proxy (Next 16's renamed middleware) — two responsibilities:
  *
  *   1. HOST GATING. The deploy serves both surfaces, but each subdomain only
- *      renders one of them. On admin.energytalentco.com, candidate paths are
- *      404'd; on assess.energytalentco.com, admin paths are 404'd. This
- *      gives real cookie + cross-site isolation between the two audiences.
+ *      renders one of them. On admin.energytalentco.com (or its
+ *      everytalentco.com equivalent), candidate paths are 404'd; on
+ *      assess.energytalentco.com (or its everytalentco.com equivalent),
+ *      admin paths are 404'd. Both domains are recognised during the
+ *      energytalentco.com -> everytalentco.com transition; the redirect
+ *      target below still points at the energytalentco.com host since
+ *      that's the one DNS currently resolves. This gives real cookie +
+ *      cross-site isolation between the two audiences.
  *
  *   2. AUTH GATING for /admin. Refreshes the Supabase session and redirects
  *      unauthenticated requests to /admin/login. Defence-in-depth on top of
@@ -27,9 +32,11 @@ const PUBLIC_ADMIN_PATHS = new Set<string>([
 
 const ADMIN_HOSTS = new Set<string>([
   "admin.energytalentco.com",
+  "admin.everytalentco.com",
 ]);
 const CANDIDATE_HOSTS = new Set<string>([
   "assess.energytalentco.com",
+  "assess.everytalentco.com",
 ]);
 
 function isAdminPath(path: string): boolean {

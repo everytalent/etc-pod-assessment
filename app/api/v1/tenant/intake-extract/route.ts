@@ -284,11 +284,15 @@ type JdShareTarget = { jdId: string; origin: string };
 /**
  * Detects a JD Studio share URL of the form
  *   https://jd.energytalentco.com/#/share/<uuid>
- * and returns the JD id + origin so the caller can hit the public API
- * directly. Returns null when the URL isn't a JD Studio share link.
+ * (or the everytalentco.com equivalent, recognised during the domain
+ * transition) and returns the JD id + origin so the caller can hit the
+ * public API directly. Returns null when the URL isn't a JD Studio share
+ * link.
  */
+const JD_STUDIO_HOSTS = new Set(["jd.energytalentco.com", "jd.everytalentco.com"]);
+
 function matchJdStudioShareUrl(u: URL): JdShareTarget | null {
-  if (u.hostname !== "jd.energytalentco.com") return null;
+  if (!JD_STUDIO_HOSTS.has(u.hostname)) return null;
   // SharePage routes on the URL fragment: #/share/<id> or #share/<id>.
   const hash = u.hash.replace(/^#\/?/, "");
   const m = hash.match(/^share\/([0-9a-fA-F-]{32,40})/);
@@ -357,12 +361,15 @@ type RecruiterShareTarget = { roleId: string; origin: string };
 /**
  * Detects a Recruiter Platform share URL of the form
  *   https://recruiter.energytalentco.com/#/jd/<role_id>
- * The role id pattern is "role_" followed by 6-12 hex/alphanumeric
- * characters (matching the existing portal scheme). Returns null when
- * the URL doesn't match.
+ * (or the everytalentco.com equivalent, recognised during the domain
+ * transition). The role id pattern is "role_" followed by 6-12
+ * hex/alphanumeric characters (matching the existing portal scheme).
+ * Returns null when the URL doesn't match.
  */
+const RECRUITER_PORTAL_HOSTS = new Set(["recruiter.energytalentco.com", "recruiter.everytalentco.com"]);
+
 function matchRecruiterPortalUrl(u: URL): RecruiterShareTarget | null {
-  if (u.hostname !== "recruiter.energytalentco.com") return null;
+  if (!RECRUITER_PORTAL_HOSTS.has(u.hostname)) return null;
   const hash = u.hash.replace(/^#\/?/, "");
   const m = hash.match(/^jd\/(role_[a-zA-Z0-9]{4,32})/);
   if (!m) return null;
