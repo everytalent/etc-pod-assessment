@@ -251,11 +251,25 @@ export async function POST(req: Request): Promise<NextResponse> {
         eq(responses.status, "in_progress"),
       ),
     );
-  const myExisting = openExisting.filter(
-    (r) =>
-      (r.metadata as { external_candidate_id?: string } | null)
-        ?.external_candidate_id === input.candidate_id,
-  );
+  // Filter to THIS candidate's in-progress rows — but skip any whose
+  // session_expires_at is already past. Without the expiry check, a stale
+  // 'in_progress' row from a week ago (never submitted, never swept) would
+  // masquerade as an active session forever, and every re-trigger of
+  // validation would just return that expired URL. The `/take/[token]`
+  // page checks the expiry on render and shows "This link has expired" —
+  // meaning the candidate ends up in a loop where re-requesting a link
+  // gives them the same dead URL. Filtering here breaks the loop by
+  // letting the caller fall through to the mint-new path.
+  const nowMs = Date.now();
+  const myExisting = openExisting.filter((r) => {
+    const meta = r.metadata as {
+      external_candidate_id?: string;
+      session_expires_at?: string;
+    } | null;
+    if (meta?.external_candidate_id !== input.candidate_id) return false;
+    if (meta.session_expires_at && new Date(meta.session_expires_at).getTime() < nowMs) return false;
+    return true;
+  });
   if (myExisting.length > 0) {
     // Return the first existing session's URL — multi-spec deduping is
     // approximate at MVP (we don't compare the full set).
