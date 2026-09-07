@@ -8,7 +8,12 @@
  *
  * Handoff from JD Studio: a company that has already written a JD in JD
  * Studio can arrive here with `?from_jd=<jd_id>` and find it prefilled,
- * rather than pasting the same text twice. The JD is fetched server-side
+ * rather than pasting the same text twice.
+ *
+ * This is the TENANT assessment and nothing else. It creates a
+ * tenant_assessment_bank, served to the company's own candidates at
+ * /take-tenant/[token]. It is not the validation-mode runner at
+ * /take/[token], and not the ETC candidate intake at /assess/[slug]. The JD is fetched server-side
  * from the matching-engine's EXISTING public JD endpoint, which returns a
  * client JD only when it is published. That is the whole integration: no
  * new auth, no new storage, no shared database. The company still signs in
@@ -96,9 +101,12 @@ export default async function NewAssessmentPage({
   const session = await getTenantSession();
   if (!session) redirect(`/tenant/login?next=${encodeURIComponent(here)}`);
 
+  // First-run BRAND setup (logo and colours), despite the path being called
+  // "onboarding". It is not an onboarding assessment. Tenant assessments are
+  // branded, so a company has to complete it once before creating one. Same
+  // reasoning as the login redirect: it must not lose the handoff either.
   const brand = await getTenantBrand(session.tenant.id);
   if (!brand.onboardingCompletedAt) {
-    // Same reasoning: brand onboarding must not lose the handoff either.
     redirect(`/tenant/assessments/onboarding?next=${encodeURIComponent(here)}`);
   }
 
