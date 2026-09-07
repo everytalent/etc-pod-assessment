@@ -4,9 +4,9 @@
  * Tenant intake form (PRD §1).
  *
  * Two-step wizard:
- *   Step 1 — intake type toggle (JD / SOW), main text field, optional
+ *   Step 1: intake type toggle (JD / SOW), main text field, optional
  *            context field
- *   Step 2 — optional tenant-supplied questions (inline lines) with a
+ *   Step 2: optional tenant-supplied questions (inline lines) with a
  *            batch-default treatment (use_as_is / improve)
  *
  * Both steps fire as a single POST to /api/v1/tenant/assessment-banks.
@@ -14,7 +14,7 @@
  * client redirects to /tenant/assessments/[id]/waiting on success.
  *
  * File upload (Step 1 .pdf/.docx, Step 2 .txt/.csv) is a Phase 2b
- * follow-up — Phase 2a takes paste-only inputs.
+ * follow-up. Phase 2a takes paste-only inputs.
  */
 
 import { useRouter } from "next/navigation";
@@ -53,7 +53,7 @@ function writeDraft(draft: Draft): void {
   try {
     window.localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
   } catch {
-    // Storage full / private mode — ignore.
+    // Storage full / private mode, ignore.
   }
 }
 
@@ -66,16 +66,32 @@ function clearDraft(): void {
   }
 }
 
-export function IntakeForm() {
+/**
+ * Values a caller can seed the form with. Used when a company arrives from JD
+ * Studio having already written the JD there: re-typing it would be the only
+ * thing standing between them and an assessment, so we carry it across.
+ */
+export type IntakeInitial = {
+  intakeType?: IntakeType;
+  intakeText?: string;
+  contextText?: string;
+  roleLocation?: string;
+  /** Shown to explain where the prefilled text came from. */
+  sourceLabel?: string;
+};
+
+export function IntakeForm({ initial }: { initial?: IntakeInitial } = {}) {
   const router = useRouter();
   const [step, setStep] = useState<1 | 2>(1);
-  const [intakeType, setIntakeType] = useState<IntakeType>("job_description");
-  const [intakeText, setIntakeText] = useState("");
-  const [contextText, setContextText] = useState("");
+  const [intakeType, setIntakeType] = useState<IntakeType>(
+    initial?.intakeType ?? "job_description",
+  );
+  const [intakeText, setIntakeText] = useState(initial?.intakeText ?? "");
+  const [contextText, setContextText] = useState(initial?.contextText ?? "");
   const [claimedSeniority, setClaimedSeniority] = useState<
     "junior" | "mid" | "senior" | null
   >(null);
-  const [roleLocation, setRoleLocation] = useState("");
+  const [roleLocation, setRoleLocation] = useState(initial?.roleLocation ?? "");
   const [wantsOwnQuestions, setWantsOwnQuestions] = useState<boolean | null>(null);
   const [questionsRaw, setQuestionsRaw] = useState("");
   const [batchTreatment, setBatchTreatment] = useState<Treatment>("improve");
@@ -93,11 +109,15 @@ export function IntakeForm() {
   // intentionally starting fresh see an empty form, and people retrying
   // after a failure can recover with one click.
   useEffect(() => {
+    // Arriving with prefilled text (e.g. from JD Studio) is a deliberate
+    // choice by the user. Offering to replace it with an older local draft
+    // would be actively unhelpful, so the prompt is suppressed in that case.
+    if (initial?.intakeText) return;
     const draft = readDraft();
     if (draft && draft.intakeText.trim().length >= 20) {
       setPendingDraft(draft);
     }
-  }, []);
+  }, [initial?.intakeText]);
 
   const acceptDraft = () => {
     if (!pendingDraft) return;
@@ -182,7 +202,7 @@ export function IntakeForm() {
     }
     const data = await res.json();
     // Intentionally NOT clearing the draft here. The /assessment-banks
-    // POST creating the row doesn't mean generation succeeded — the
+    // POST creating the row doesn't mean generation succeeded. The
     // worker can still fail downstream (Anthropic timeout, prompt
     // rejection, etc.) and the "Try again" flow needs the form values
     // to be restorable. The draft is only cleared when the user
@@ -264,6 +284,13 @@ export function IntakeForm() {
 
   return (
     <div className="space-y-6">
+      {initial?.sourceLabel && initial.intakeText ? (
+        <p className="rounded-2xl border border-etc-marigold/40 bg-etc-marigold/10 p-4 text-xs">
+          <span className="font-semibold">Brought over from {initial.sourceLabel}.</span>{" "}
+          Edit anything below before you submit. Nothing is created until you do.
+        </p>
+      ) : null}
+
       {pendingDraft && (
         <div className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-foreground/20 bg-foreground/5 p-4 text-xs">
           <p>
@@ -401,7 +428,7 @@ export function IntakeForm() {
                   >
                     JD Studio
                   </a>{" "}
-                  (your branded JD platform) — it pulls the role title and
+                  (your branded JD platform): it pulls the role title and
                   description straight in. No JD yet?{" "}
                   <a
                     href="https://jd.energytalentco.com"
@@ -789,7 +816,7 @@ function humaniseExtractError(code: unknown, label: string): string {
     case "extraction_failed":
       return "We couldn't read that file. Try a different format or paste the text.";
     case "extracted_text_too_short":
-      return "We extracted very little text from that source — paste the role manually for a better assessment.";
+      return "We extracted very little text from that source. Paste the role manually for a better assessment.";
     case "fetch_failed":
       return "We couldn't reach that link. Check the URL or paste the text instead.";
     case "blocked_host":

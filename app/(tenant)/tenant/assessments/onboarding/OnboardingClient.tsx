@@ -13,11 +13,19 @@ export function OnboardingClient({
   initialPrimary,
   initialAccent,
   initialLogoUrl,
+  next,
 }: {
   tenantName: string;
   initialPrimary: string;
   initialAccent: string;
   initialLogoUrl: string | null;
+  /**
+   * Where to land once brand setup is done. Defaults to the dashboard. A
+   * company that arrived mid-task (say, handing a JD over from JD Studio)
+   * is sent back to finish it instead of being dropped on the dashboard
+   * with their work lost.
+   */
+  next?: string;
 }) {
   const router = useRouter();
   const [step, setStep] = useState<Step>("explainer");
@@ -56,7 +64,7 @@ export function OnboardingClient({
             const body = await res.json().catch(() => ({}));
             return { ok: false, error: body.error ?? `${res.status}` };
           }
-          router.push("/tenant");
+          router.push(next ?? "/tenant");
           router.refresh();
           return { ok: true };
         }}
