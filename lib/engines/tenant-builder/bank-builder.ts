@@ -47,6 +47,10 @@ import {
   type SeniorityBand,
   type TenantSuppliedQuestion,
 } from "@/lib/db/schema";
+import {
+  TASK_PERFORMANCE_RULES,
+  questionShapeIssues,
+} from "@/lib/engines/assessment/question-shape";
 
 const BANDS: SeniorityBand[] = ["junior", "mid", "senior"];
 const LEVEL_BY_BAND: Record<SeniorityBand, PerformanceLevel> = {
@@ -362,9 +366,9 @@ async function seedOneCellInline(args: {
 }): Promise<{ count: number }> {
   const questionTypeGuidance =
     args.band === "senior"
-      ? `- Question mix: at least 2 of the 3 must be CASE STUDY questions (type 'open', built to the framework below). Avoid short MCQs at this band — a senior candidate needs to demonstrate synthesis and judgement, not recall.`
+      ? `- Question mix: at least 2 of the 3 must be CASE STUDY questions (type 'open', built to the framework below). Avoid short MCQs at this band: a senior candidate needs to demonstrate synthesis and judgement across a whole situation.`
       : args.band === "junior"
-        ? `- Question mix: LEAD with 'mcq' and 'true_false' for knowledge recall. At most 1 of the 3 may be a CASE STUDY question, and if you write one, keep the situation short (a single site, one decision) — juniors have not yet built the pattern-matching to unpack a long case fairly.`
+        ? `- Question mix: LEAD with 'mcq' and 'true_false'. Keep them short, but every one of them still describes a real moment on the job and asks what the candidate would do about it. A junior MCQ is "you arrive and find X, what do you check first" — never "what is X called". At most 1 of the 3 may be a CASE STUDY question, and if you write one, keep the situation short (a single site, one decision), since juniors have not yet built the pattern-matching to unpack a long case fairly.`
         : `- Question mix: roughly 1 'mcq', 1 short 'open' reasoning question, and 1 CASE STUDY question built to the framework below.`;
 
   // The house format for case-study questions. Kept explicit because
@@ -397,6 +401,8 @@ For case-study questions the rubric must describe what a strong answer demonstra
 - Task: ${args.taskName}
 - Target band: ${args.band}
 - Target level: ${args.level}
+
+${TASK_PERFORMANCE_RULES}
 
 Quality rules:
 - Each question MUST be answerable by someone meeting the cell expectation at this band+level
@@ -434,8 +440,26 @@ Return ONLY a JSON object:
     .replace(/\s*```$/i, "");
   const parsed = cellSeedSchema.parse(JSON.parse(raw));
 
+  // Drop anything that came back recall-shaped. The prompt asks for task
+  // performance, but asking is not enforcing: definitions are the easiest
+  // thing for a model to write, so a batch drifts back toward them. A
+  // question that measures vocabulary is worse than a missing question,
+  // because it takes up a cell and reports a score nobody should act on.
+  const keep = parsed.questions.filter((q) => {
+    const issues = questionShapeIssues(q.question_text);
+    if (issues.length === 0) return true;
+    console.warn(
+      `[tenant-builder] dropped recall-shaped question for task=${args.taskId} ` +
+        `band=${args.band}: ${issues.map((i) => i.message).join("; ")} ` +
+        `| text="${q.question_text.slice(0, 120)}"`,
+    );
+    return false;
+  });
+
+  if (keep.length === 0) return { count: 0 };
+
   await db.insert(questions).values(
-    parsed.questions.map((q, i) => ({
+    keep.map((q, i) => ({
       assessmentId: args.assessmentId,
       orderIndex: args.startOrderIndex + i,
       type: q.question_type as "mcq" | "true_false" | "open",
@@ -458,7 +482,7 @@ Return ONLY a JSON object:
     })),
   );
 
-  return { count: parsed.questions.length };
+  return { count: keep.length };
 }
 
 /* ---------- Tenant-question insert ---------- */
