@@ -1,5 +1,11 @@
 /**
- * POST /take-tenant/[token]/verify
+ * POST /api/take-tenant/[token]/verify
+ *
+ * Moved here from /take-tenant/[token]/verify, where it sat in the same
+ * folder as that path's page.tsx. Next.js forbids a route and a page at
+ * one path, so the whole app had failed to build since 2026-07-14 and
+ * nothing could be deployed. The UI lives at the original path; this is
+ * the endpoint it posts to.
  *
  * Two actions, one endpoint:
  *   { action: 'send' }             — mint a fresh 6-digit code, store its

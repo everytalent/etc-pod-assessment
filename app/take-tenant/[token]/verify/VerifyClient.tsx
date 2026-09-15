@@ -28,7 +28,7 @@ export function VerifyClient({
     setError(null);
     setPhase("sending");
     try {
-      const res = await fetch(`/take-tenant/${token}/verify`, {
+      const res = await fetch(`/api/take-tenant/${token}/verify`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "send" }),
@@ -73,7 +73,7 @@ export function VerifyClient({
     setError(null);
     setPhase("checking");
     try {
-      const res = await fetch(`/take-tenant/${token}/verify`, {
+      const res = await fetch(`/api/take-tenant/${token}/verify`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "check", code }),

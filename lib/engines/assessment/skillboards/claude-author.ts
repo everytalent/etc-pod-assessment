@@ -294,6 +294,22 @@ export async function processNextAuthoringJob(
   await rescueStuckJobs(skillboardId);
 
   // Step 2: claim the oldest pending job, atomically.
+  //
+  // The id subquery is what makes this ONE job. Without it the UPDATE
+  // matched every pending row for the board: a single claim flipped all
+  // of them to in_progress, processed the first, and left the rest
+  // falsely marked in-flight until the 5-minute stuck-job rescue handed
+  // them back. A 390-cell board therefore drained at roughly one job
+  // per five minutes no matter how much budget the worker had, because
+  // the drain loop kept seeing no_pending_jobs and stopping.
+  //
+  // It also incremented attempt_count on every row it touched, so jobs
+  // burned through MAX_JOB_ATTEMPTS while waiting their turn and were
+  // marked failed without ever having run. Boards showed attempt counts
+  // in the dozens against a limit of a handful.
+  //
+  // FOR UPDATE SKIP LOCKED lets several workers (cron, browser tab)
+  // claim different rows concurrently instead of blocking on each other.
   const cutoff = new Date();
   const [claimed] = await db
     .update(skillboardAuthoringJobs)
@@ -304,13 +320,15 @@ export async function processNextAuthoringJob(
       attemptCount: sql`${skillboardAuthoringJobs.attemptCount} + 1`,
     })
     .where(
-      and(
-        eq(skillboardAuthoringJobs.skillboardId, skillboardId),
-        eq(skillboardAuthoringJobs.status, "pending"),
-        // Staged regens are not picked up until admin releases them
-        // (sets paused_until_review = false via the staged-regens panel).
-        eq(skillboardAuthoringJobs.pausedUntilReview, false),
-      ),
+      sql`${skillboardAuthoringJobs.id} = (
+        SELECT j.id FROM ${skillboardAuthoringJobs} j
+        WHERE j.skillboard_id = ${skillboardId}
+          AND j.status = 'pending'
+          AND j.paused_until_review = false
+        ORDER BY j.created_at ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+      )`,
     )
     .returning();
 
