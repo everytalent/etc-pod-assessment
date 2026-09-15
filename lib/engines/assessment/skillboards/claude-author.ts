@@ -80,6 +80,25 @@ const WEB_SEARCH_TOOL = {
 const TASK_COUNT_MIN = 20;
 const TASK_COUNT_MAX = 32;
 
+/**
+ * A string field that is trimmed to fit rather than rejected for being
+ * a few characters long.
+ *
+ * These caps exist to keep labels short, not to validate meaning, and
+ * Zod was failing the whole response over them: one 62-character
+ * competency_area threw away all three questions for that cell, and an
+ * over-long change_summary killed the cell regeneration outright. Those
+ * were real failures in the job queue, not a hypothetical. Losing
+ * generated work to a cosmetic overflow is the wrong trade, so the
+ * value is truncated and kept.
+ */
+function cappedString(max: number) {
+  return z.preprocess(
+    (v) => (typeof v === "string" ? v.trim().slice(0, max) : v),
+    z.string().max(max),
+  );
+}
+
 const structureOutputSchema = z.object({
   skills: z
     .array(
@@ -152,7 +171,7 @@ const taskCellsOutputSchema = z.object({
 
 const cellRegenOutputSchema = z.object({
   expectation_text: z.string().trim().min(40).max(400),
-  change_summary: z.string().trim().min(20).max(200),
+  change_summary: cappedString(200),
 });
 
 /* ---------- Pass 1: structure ---------- */
@@ -1059,7 +1078,7 @@ Return ONLY a JSON object matching this shape:
       correct_answer: z.array(z.string()).max(8).optional(),
       scoring_rubric: z.string().min(40).max(2000),
       difficulty_score: z.number().int().min(1).max(10),
-      competency_area: z.string().max(60).optional(),
+      competency_area: cappedString(60).optional(),
       weight: z.number().int().min(50).max(200).default(100),
       interactive_config: z.unknown().optional(),
     }),

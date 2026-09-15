@@ -57,6 +57,21 @@ async function handle(req: Request): Promise<NextResponse> {
 
   const doneUrl = new URL(`/assess/${row.assessmentSlug}/done`, req.url);
 
+  // Carry the caller's return URL through to the outro so the candidate
+  // has a way back to wherever they started. The PoD sends it as
+  // redirect_url_after_completion when it mints the session; without
+  // this the outro was a dead end and finishing validation left the
+  // candidate stranded on a "Submitted" card with nowhere to go.
+  //
+  // It cannot be read from the session cookie on /done, because
+  // finalising clears that cookie, so it has to travel in the URL.
+  const returnUrl = (
+    (row.metadata ?? {}) as { redirect_url_after_completion?: string }
+  ).redirect_url_after_completion;
+  if (returnUrl) {
+    doneUrl.searchParams.set("next", returnUrl);
+  }
+
   if (row.status === "submitted") {
     // Already finalized — bounce to /done.
     await clearCandidateSession();

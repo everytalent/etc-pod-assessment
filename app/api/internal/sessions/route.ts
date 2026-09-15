@@ -43,6 +43,7 @@ import {
   ensureSkillboardForSpecialisation,
 } from "@/lib/engines/assessment/auto-provision";
 import { deduceBand } from "@/lib/engines/assessment/band-deducer";
+import { addToWaitlist } from "@/lib/engines/assessment/waitlist";
 import { getOnboardingProfile } from "@/lib/engines/assessment/onboarding-client";
 import { getOrCreateValidationBank } from "@/lib/engines/assessment/proposals/validation-bank";
 import { findSkillboardForSpecialisation } from "@/lib/engines/assessment/specialisation-matcher";
@@ -194,6 +195,25 @@ export async function POST(req: Request): Promise<NextResponse> {
     outcome: string;
   }> = [];
   if (resolved.length === 0) {
+    // Record them before doing anything else, so the promise the UI is
+    // about to make ("we'll email you the moment it's ready") has
+    // something behind it even if provisioning itself fails.
+    for (const spec of [...unknown, ...emptyBanks]) {
+      try {
+        await addToWaitlist({
+          candidateId: input.candidate_id,
+          candidateEmail: profile.email,
+          candidateName: profile.full_name,
+          specialisation: spec,
+          reason: unknown.includes(spec) ? "unknown" : "empty_bank",
+        });
+      } catch (err) {
+        console.error(
+          `[sessions] waitlist insert failed for "${spec}": ${String(err)}`,
+        );
+      }
+    }
+
     for (const spec of unknown) {
       try {
         const r = await ensureSkillboardForSpecialisation(spec);
