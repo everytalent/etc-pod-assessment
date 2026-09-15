@@ -734,6 +734,7 @@ async function processStructureJob(
 
   const stashed = (resultPayload ?? {}) as {
     reference_urls?: string[];
+    auto_activate?: boolean;
   };
 
   await runStructureAuthoring({
@@ -744,6 +745,26 @@ async function processStructureJob(
       referenceUrls: stashed.reference_urls ?? [],
     },
   });
+
+  // Auto-provisioned boards finish the job themselves.
+  //
+  // The admin path stops here and waits for a Learning Expert to press
+  // activate, which is what enqueues the bank_seed jobs. A board created
+  // because a candidate turned up with an unknown specialisation has
+  // nobody waiting to press anything, so without this it would sit with
+  // structure and an empty bank forever, which is the exact stall this
+  // flag exists to end. PRD §17 already exempts provisional boards from
+  // the cell-approval gate, so activating here is consistent with it
+  // rather than a shortcut around it.
+  if (stashed.auto_activate) {
+    const { markActivated } = await import("./activator");
+    const { enqueueBankSeedJobs } = await import("./bank-seed-enqueue");
+    await markActivated(skillboardId);
+    const enqueued = await enqueueBankSeedJobs(skillboardId);
+    console.info(
+      `[authoring] auto-activated ${skillboardId} and enqueued ${enqueued} bank_seed job(s)`,
+    );
+  }
 }
 
 /* ---------- Worker: bank-seed job ---------- */
