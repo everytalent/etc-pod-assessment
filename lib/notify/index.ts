@@ -66,10 +66,10 @@ export type NotifyArgs = {
 };
 
 const SUPERADMIN_RECIPIENT =
-  process.env.NOTIFY_SUPERADMIN_EMAIL ?? "ugo@energytalentco.com";
+  process.env.NOTIFY_SUPERADMIN_EMAIL ?? "ugo@everytalentco.com";
 
 const APP_HEALTH_RECIPIENT =
-  process.env.NOTIFY_APP_HEALTH_EMAIL ?? "app-health@energytalentco.com";
+  process.env.NOTIFY_APP_HEALTH_EMAIL ?? "app-health@everytalentco.com";
 
 function pickChannel(): NotifyChannel {
   const raw = (process.env.NOTIFY_CHANNEL ?? "noop").toLowerCase();

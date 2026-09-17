@@ -1,8 +1,11 @@
 /**
  * Minimal Resend HTTP client. We don't need the full SDK — one POST.
  *
- * Requires RESEND_API_KEY. The "from" address must be on a domain you've
- * verified in Resend (we use noreply@energytalentco.com).
+ * Requires RESEND_API_KEY. The "from" address must be on a domain you
+ * have verified in Resend. Set EMAIL_FROM to override the default
+ * without a deploy: if the sending domain ever changes, or the one in
+ * the default is not verified, that is an environment variable rather
+ * than a code change.
  *
  * Throws on transport errors so the caller decides whether to swallow or
  * surface them. Email sending is rarely critical-path; in most places we
@@ -10,7 +13,11 @@
  */
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
-const DEFAULT_FROM = "ETC POD Admin <noreply@energytalentco.com>";
+// Every Talent Co is the current name; the older energytalentco.com
+// domain still exists in Resend, so EMAIL_FROM can point back at it if
+// this one is ever unverified.
+const DEFAULT_FROM =
+  process.env.EMAIL_FROM ?? "Every Talent Co <noreply@everytalentco.com>";
 
 type SendArgs = {
   to: string | string[];

@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 
-const SUPPORT_EMAIL = "support@energytalentco.com";
+const SUPPORT_EMAIL = "support@everytalentco.com";
 
 export default function AssessError({
   error,

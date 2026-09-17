@@ -30,7 +30,11 @@ export async function sendNotifyEmail(args: Args): Promise<void> {
     to: args.to,
     subject,
     html,
-    from: "ETC Platform Health <noreply@energytalentco.com>",
+    // Same override as the main client: EMAIL_FROM moves every sender at
+    // once if the verified domain changes.
+    from:
+      process.env.EMAIL_FROM ??
+      "Every Talent Co Platform Health <noreply@everytalentco.com>",
   });
 }
 
