@@ -211,6 +211,31 @@ export async function callOpusRaw(args: OpusCallArgs): Promise<OpusCallResult> {
 
   if (!res!.ok) {
     const text = await res!.text().catch(() => "");
+
+    // An exhausted credit balance arrives as a generic 400, which is how
+    // 509 authoring jobs came to sit in `failed` behind a message nobody
+    // read as "top up the account". It is not a code fault and no amount
+    // of retrying fixes it, so it gets its own message and an alert. The
+    // internal OPUS_MONTHLY_CAP_USD gate is separate and says nothing
+    // about what is actually left on the account.
+    if (/credit balance is too low/i.test(text)) {
+      void notify({
+        severity: "critical",
+        eventType: "anthropic_credit_exhausted",
+        payload: {
+          status: res!.status,
+          detail: text.slice(0, 300),
+        },
+      }).catch(() => {});
+      throw new Error(
+        "Anthropic account is out of credit, so no authoring or scoring " +
+          "can run. This is a billing top-up, not a code fault: add credit " +
+          "in Plans & Billing, then re-run " +
+          "scripts/requeue-failed-authoring-jobs.ts to revive the jobs that " +
+          "failed while it was empty.",
+      );
+    }
+
     throw new Error(`Anthropic ${res!.status}: ${text || res!.statusText}`);
   }
 
