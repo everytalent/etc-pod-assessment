@@ -163,8 +163,12 @@ function FailedView({
     <section className="mx-auto max-w-xl rounded-2xl border border-destructive bg-card p-8 text-center">
       <h1 className="text-xl font-bold">Generation failed</h1>
       <p className="mt-3 text-sm text-muted-foreground">
-        We hit an error generating your assessment. Your generation credit
-        has been refunded.
+        {/* Not "refunded". The credit is consumed only after a successful
+            build (orchestrator.ts), so a failure never charged one, and
+            saying it was refunded sends people to check a balance for a
+            transaction that does not exist. */}
+        We hit an error generating your assessment. You have not been charged:
+        the generation credit is only taken once an assessment is built.
       </p>
       {failureReason && (
         <p className="mt-3 rounded-lg bg-muted p-2 text-[0.7rem] text-muted-foreground">

@@ -3,11 +3,19 @@
 /**
  * Tenant intake form (PRD §1).
  *
- * Two-step wizard:
- *   Step 1: intake type toggle (JD / SOW), main text field, optional
- *            context field
- *   Step 2: optional tenant-supplied questions (inline lines) with a
- *            batch-default treatment (use_as_is / improve)
+ * Two ways through, chosen up front:
+ *
+ *   Fast        one screen. Role type, the JD text, generate. Everything else
+ *               is read out of the JD, which is what the intake analyser does
+ *               anyway when the optional fields are left blank.
+ *   Step by step the guided build: seniority, location and extra context, then
+ *               a second screen for questions you want asked verbatim.
+ *
+ * The choice exists because the two are genuinely different jobs. Someone
+ * filling a role they have written a good JD for wants it done; someone
+ * calibrating an assessment they will reuse wants the controls. Presenting
+ * only the long path made the first case feel like paperwork, and presenting
+ * only the short one gave the second case nowhere to say what they knew.
  *
  * Both steps fire as a single POST to /api/v1/tenant/assessment-banks.
  * The API creates the bank row and enqueues the generation job; the
@@ -28,7 +36,10 @@ type IntakeMode = "paste" | "upload" | "url";
 
 const DRAFT_KEY = "tenant-intake-draft-v1";
 
+type BuildMode = "fast" | "guided";
+
 type Draft = {
+  buildMode?: BuildMode;
   intakeType: IntakeType;
   intakeText: string;
   contextText: string;
@@ -83,6 +94,9 @@ export type IntakeInitial = {
 export function IntakeForm({ initial }: { initial?: IntakeInitial } = {}) {
   const router = useRouter();
   const [step, setStep] = useState<1 | 2>(1);
+  // Fast by default: most people arrive with a JD already written, and the
+  // guided path is one click away for anyone who wants it.
+  const [buildMode, setBuildMode] = useState<BuildMode>("fast");
   const [intakeType, setIntakeType] = useState<IntakeType>(
     initial?.intakeType ?? "job_description",
   );
@@ -121,6 +135,9 @@ export function IntakeForm({ initial }: { initial?: IntakeInitial } = {}) {
 
   const acceptDraft = () => {
     if (!pendingDraft) return;
+    // Older drafts predate the choice and have no mode; fast is the default
+    // for them too, so they behave as they did before.
+    setBuildMode(pendingDraft.buildMode ?? "fast");
     setIntakeType(pendingDraft.intakeType);
     setIntakeText(pendingDraft.intakeText);
     setContextText(pendingDraft.contextText);
@@ -139,6 +156,7 @@ export function IntakeForm({ initial }: { initial?: IntakeInitial } = {}) {
   useEffect(() => {
     if (intakeText.trim().length < 20) return;
     writeDraft({
+      buildMode,
       intakeType,
       intakeText,
       contextText,
@@ -147,6 +165,7 @@ export function IntakeForm({ initial }: { initial?: IntakeInitial } = {}) {
       batchTreatment,
     });
   }, [
+    buildMode,
     intakeType,
     intakeText,
     contextText,
@@ -169,6 +188,7 @@ export function IntakeForm({ initial }: { initial?: IntakeInitial } = {}) {
 
   const canAdvanceStep1 = intakeText.trim().length >= 100;
   const canSubmit = canAdvanceStep1 && !submitting;
+  const guided = buildMode === "guided";
 
   const submit = async () => {
     if (!canSubmit) return;
@@ -219,6 +239,7 @@ export function IntakeForm({ initial }: { initial?: IntakeInitial } = {}) {
     setQuestionsRaw("");
     setBatchTreatment("improve");
     setStep(1);
+    setBuildMode("fast");
     setRestoredFromDraft(false);
     setIntakeMode("paste");
     setSourceLabel(null);
@@ -331,10 +352,33 @@ export function IntakeForm({ initial }: { initial?: IntakeInitial } = {}) {
           </button>
         </div>
       )}
-      <Stepper current={step} />
+      <Stepper current={step} guided={guided} />
 
       {step === 1 ? (
         <section className="space-y-5 rounded-2xl border border-border bg-card p-6">
+          <fieldset>
+            <legend className="text-sm font-semibold">
+              How do you want to build it?
+            </legend>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <RadioCard
+                checked={buildMode === "fast"}
+                onChange={() => {
+                  setBuildMode("fast");
+                  setStep(1);
+                }}
+                title="Fast"
+                hint="Paste the role and generate. We read seniority and context out of the text."
+              />
+              <RadioCard
+                checked={buildMode === "guided"}
+                onChange={() => setBuildMode("guided")}
+                title="Step by step"
+                hint="Set seniority and location yourself, and add questions you want asked word for word."
+              />
+            </div>
+          </fieldset>
+
           <fieldset>
             <legend className="text-sm font-semibold">What are you hiring for?</legend>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -476,6 +520,7 @@ export function IntakeForm({ initial }: { initial?: IntakeInitial } = {}) {
             </p>
           </div>
 
+          {guided && (
           <label className="block">
             <span className="text-xs font-medium">
               Anything else we should know (optional)
@@ -489,7 +534,9 @@ export function IntakeForm({ initial }: { initial?: IntakeInitial } = {}) {
               className="mt-1 w-full resize-y rounded-lg border border-input bg-background p-3 text-sm"
             />
           </label>
+          )}
 
+          {guided && (
           <fieldset>
             <legend className="text-xs font-medium">Seniority level</legend>
             <p className="mt-1 text-[0.65rem] text-muted-foreground">
@@ -521,7 +568,9 @@ export function IntakeForm({ initial }: { initial?: IntakeInitial } = {}) {
               />
             </div>
           </fieldset>
+          )}
 
+          {guided && (
           <label className="block">
             <span className="text-xs font-medium">
               Role location (optional)
@@ -539,15 +588,26 @@ export function IntakeForm({ initial }: { initial?: IntakeInitial } = {}) {
               className="mt-1 h-10 w-full rounded-lg border border-input bg-background px-3 text-sm"
             />
           </label>
+          )}
+
+          {error && (
+            <p className="text-xs text-destructive" role="alert">
+              {error}
+            </p>
+          )}
 
           <div className="flex justify-end">
             <button
               type="button"
-              disabled={!canAdvanceStep1}
-              onClick={() => setStep(2)}
+              disabled={guided ? !canAdvanceStep1 : !canSubmit}
+              onClick={() => (guided ? setStep(2) : void submit())}
               className="inline-flex h-11 items-center rounded-xl bg-foreground px-5 text-sm font-semibold text-background disabled:opacity-50"
             >
-              Continue
+              {guided
+                ? "Continue"
+                : submitting
+                  ? "Generating…"
+                  : "Generate the assessment"}
             </button>
           </div>
         </section>
@@ -678,7 +738,10 @@ export function IntakeForm({ initial }: { initial?: IntakeInitial } = {}) {
   );
 }
 
-function Stepper({ current }: { current: 1 | 2 }) {
+function Stepper({ current, guided }: { current: 1 | 2; guided: boolean }) {
+  // Fast mode has one screen, so a two-step indicator would promise a step
+  // that never comes.
+  if (!guided) return null;
   return (
     <ol className="flex items-center gap-3 text-xs text-muted-foreground">
       <Step n={1} label="Role or project" current={current} />
