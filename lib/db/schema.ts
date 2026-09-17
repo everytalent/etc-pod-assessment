@@ -1458,6 +1458,32 @@ export const notifyLog = pgTable("notify_log", {
   deliveryStatus: text("delivery_status").notNull().default("ok"),
 });
 
+/* ---------- Validation waitlist ---------- */
+
+/**
+ * Candidates turned away because their specialisation had no usable
+ * validation bank yet.
+ *
+ * The candidate-facing copy promises "we'll email you the moment it's
+ * ready". Nothing recorded who had been told that, so the email could
+ * never be sent and the promise was empty. A row lands here the moment
+ * someone is turned away, and is stamped `notifiedAt` once they have
+ * been told the assessment is open.
+ */
+export const validationWaitlist = pgTable("validation_waitlist", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  candidateId: text("candidate_id").notNull(),
+  candidateEmail: text("candidate_email").notNull(),
+  candidateName: text("candidate_name"),
+  specialisation: text("specialisation").notNull(),
+  /** 'unknown' (no skillboard) or 'empty_bank' (live board, no questions). */
+  reason: text("reason").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  notifiedAt: timestamp("notified_at", { withTimezone: true }),
+});
+
 /* ---------- Skillboard authoring job queue ---------- */
 
 /**

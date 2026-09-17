@@ -20,12 +20,30 @@ import { OnboardingClient } from "./OnboardingClient";
 
 export const dynamic = "force-dynamic";
 
-export default async function TenantOnboardingPage() {
+/**
+ * Only same-origin relative paths are accepted as a destination. Taking an
+ * arbitrary ?next= would turn this page into an open redirect, so anything
+ * that is not a plain "/path" is discarded rather than sanitised.
+ */
+function safeNext(next: string | undefined): string | undefined {
+  if (!next) return undefined;
+  if (!next.startsWith("/") || next.startsWith("//")) return undefined;
+  return next;
+}
+
+export default async function TenantOnboardingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string }>;
+}) {
   const session = await getTenantSession();
   if (!session) redirect("/tenant/login");
 
+  const { next } = await searchParams;
+  const destination = safeNext(next);
+
   const brand = await getTenantBrand(session.tenant.id);
-  if (brand.onboardingCompletedAt) redirect("/tenant");
+  if (brand.onboardingCompletedAt) redirect(destination ?? "/tenant");
 
   return (
     <OnboardingClient
@@ -33,6 +51,7 @@ export default async function TenantOnboardingPage() {
       initialPrimary={brand.primaryColor}
       initialAccent={brand.accentColor}
       initialLogoUrl={brand.logoUrl}
+      next={destination}
     />
   );
 }

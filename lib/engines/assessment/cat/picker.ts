@@ -3,6 +3,10 @@
  * the CAT state machine, pick the next question from the question bank.
  *
  * Rules:
+ *   - A question belongs to the skillboard its anchor task sits under
+ *     (question → task → skill → skillboard), NOT to whatever the
+ *     free-text questions.specialisation column says. That column is
+ *     duplicated data and drifts away from the board it describes.
  *   - Only ACTIVATED skillboards contribute questions (via skillboards.activatedAt).
  *   - Only questions already answered in this response are excluded
  *     (no repeats per session).
@@ -16,6 +20,7 @@
 import { and, eq, notInArray, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
+import { findSkillboardForSpecialisation } from "@/lib/engines/assessment/specialisation-matcher";
 import {
   questions,
   skillboards,
@@ -57,6 +62,26 @@ export async function pickNextValidationQuestion(args: {
   excludeQuestionIds: string[];
   targetDifficulty?: number; // 1-10; lower = easier
 }): Promise<Question | null> {
+  // Resolve the specialisation to a skillboard ONCE, using the same
+  // matcher POST /api/internal/sessions used to mint this session. That
+  // shared resolution is the point: the invite gate checks "does this
+  // board's bank have questions" while the picker checks "which
+  // questions belong to this board" — if the two disagree, a candidate
+  // gets an invite for a bank that then serves them nothing.
+  //
+  // Once resolved, membership comes from the question's anchor chain
+  // (question → task → skill → skillboard), never from the free-text
+  // questions.specialisation column. That column is duplicated data and
+  // it drifts: the Solar Installation board carries questions tagged
+  // both "Solar Installation" and "Solar installation specialist", and
+  // the System Design board carries questions tagged "Solar Design
+  // Specialist". Text matching dead-ended real candidates on that drift
+  // (System Design served zero questions on 2026-08-26 for exactly this
+  // reason). Foreign keys don't drift.
+  const match = await findSkillboardForSpecialisation(args.specialisation);
+  const skillboardId =
+    match.kind === "match" && !match.archivedAt ? match.skillboardId : null;
+
   // Try targets in order:
   //   1. exact (band, level)
   //   2. exact band, neighbour levels
@@ -79,6 +104,7 @@ export async function pickNextValidationQuestion(args: {
         l,
         args.excludeQuestionIds,
         args.targetDifficulty,
+        skillboardId,
       );
       if (row) return row;
     }
@@ -92,6 +118,7 @@ async function pickFromCell(
   level: PerformanceLevel,
   excludeIds: string[],
   targetDifficulty?: number,
+  skillboardId?: string | null,
 ): Promise<Question | null> {
   // ORDER BY ABS(difficulty_score - target) when given a target, otherwise random.
   // RANDOM() avoids the same candidate seeing the same question first
@@ -101,27 +128,36 @@ async function pickFromCell(
       ? sql`ABS(COALESCE(${questions.difficultyScore}, 5) - ${targetDifficulty})`
       : sql`RANDOM()`;
 
-  // Specialisation match is fuzzy on purpose. Question banks are tagged
-  // by the skillboard authoring tool (e.g. "Solar installation
-  // specialist") while validation assessments store a shorter role
-  // label ("Solar Installation"). Both should route to the same
-  // question pool. We match case-insensitively via prefix in EITHER
-  // direction so drift on either side doesn't dead-end a candidate.
-  const conditions = [
-    sql`(
+  const conditions = [eq(questions.band, band), eq(questions.level, level)];
+
+  if (skillboardId) {
+    // Preferred path: board membership comes from the anchor chain, so
+    // a question belongs to the board its task actually sits under —
+    // regardless of what the free-text specialisation column claims.
+    conditions.push(sql`EXISTS (
+      SELECT 1 FROM ${tasks} t
+      JOIN ${skills} sk ON sk.id = t.skill_id
+      JOIN ${skillboards} sb ON sb.id = sk.skillboard_id
+      WHERE t.id = ${questions.taskId}
+        AND sb.id = ${skillboardId}
+        AND sb.activated_at IS NOT NULL
+    )`);
+  } else {
+    // Fallback for specialisations with no resolvable skillboard (legacy
+    // rows predating the skillboard model, whose questions have no task
+    // anchor at all). Keeps the old bidirectional-prefix text match so
+    // nothing that works today regresses.
+    conditions.push(sql`(
       LOWER(${questions.specialisation}) LIKE LOWER(${specialisation}) || '%'
       OR LOWER(${specialisation}) LIKE LOWER(${questions.specialisation}) || '%'
-    )`,
-    eq(questions.band, band),
-    eq(questions.level, level),
-    // Only questions whose anchor task belongs to an active skillboard.
-    sql`EXISTS (
+    )`);
+    conditions.push(sql`EXISTS (
       SELECT 1 FROM ${tasks} t
       JOIN ${skills} sk ON sk.id = t.skill_id
       JOIN ${skillboards} sb ON sb.id = sk.skillboard_id
       WHERE t.id = ${questions.taskId} AND sb.activated_at IS NOT NULL
-    )`,
-  ];
+    )`);
+  }
   if (excludeIds.length > 0) {
     // Use Drizzle's notInArray helper so postgres-js binds each UUID as
     // a separate parameter. The earlier `ne(questions.id, '__none__')`

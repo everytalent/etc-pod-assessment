@@ -80,6 +80,25 @@ const WEB_SEARCH_TOOL = {
 const TASK_COUNT_MIN = 20;
 const TASK_COUNT_MAX = 32;
 
+/**
+ * A string field that is trimmed to fit rather than rejected for being
+ * a few characters long.
+ *
+ * These caps exist to keep labels short, not to validate meaning, and
+ * Zod was failing the whole response over them: one 62-character
+ * competency_area threw away all three questions for that cell, and an
+ * over-long change_summary killed the cell regeneration outright. Those
+ * were real failures in the job queue, not a hypothetical. Losing
+ * generated work to a cosmetic overflow is the wrong trade, so the
+ * value is truncated and kept.
+ */
+function cappedString(max: number) {
+  return z.preprocess(
+    (v) => (typeof v === "string" ? v.trim().slice(0, max) : v),
+    z.string().max(max),
+  );
+}
+
 const structureOutputSchema = z.object({
   skills: z
     .array(
@@ -152,7 +171,7 @@ const taskCellsOutputSchema = z.object({
 
 const cellRegenOutputSchema = z.object({
   expectation_text: z.string().trim().min(40).max(400),
-  change_summary: z.string().trim().min(20).max(200),
+  change_summary: cappedString(200),
 });
 
 /* ---------- Pass 1: structure ---------- */
@@ -294,6 +313,22 @@ export async function processNextAuthoringJob(
   await rescueStuckJobs(skillboardId);
 
   // Step 2: claim the oldest pending job, atomically.
+  //
+  // The id subquery is what makes this ONE job. Without it the UPDATE
+  // matched every pending row for the board: a single claim flipped all
+  // of them to in_progress, processed the first, and left the rest
+  // falsely marked in-flight until the 5-minute stuck-job rescue handed
+  // them back. A 390-cell board therefore drained at roughly one job
+  // per five minutes no matter how much budget the worker had, because
+  // the drain loop kept seeing no_pending_jobs and stopping.
+  //
+  // It also incremented attempt_count on every row it touched, so jobs
+  // burned through MAX_JOB_ATTEMPTS while waiting their turn and were
+  // marked failed without ever having run. Boards showed attempt counts
+  // in the dozens against a limit of a handful.
+  //
+  // FOR UPDATE SKIP LOCKED lets several workers (cron, browser tab)
+  // claim different rows concurrently instead of blocking on each other.
   const cutoff = new Date();
   const [claimed] = await db
     .update(skillboardAuthoringJobs)
@@ -304,13 +339,15 @@ export async function processNextAuthoringJob(
       attemptCount: sql`${skillboardAuthoringJobs.attemptCount} + 1`,
     })
     .where(
-      and(
-        eq(skillboardAuthoringJobs.skillboardId, skillboardId),
-        eq(skillboardAuthoringJobs.status, "pending"),
-        // Staged regens are not picked up until admin releases them
-        // (sets paused_until_review = false via the staged-regens panel).
-        eq(skillboardAuthoringJobs.pausedUntilReview, false),
-      ),
+      sql`${skillboardAuthoringJobs.id} = (
+        SELECT j.id FROM ${skillboardAuthoringJobs} j
+        WHERE j.skillboard_id = ${skillboardId}
+          AND j.status = 'pending'
+          AND j.paused_until_review = false
+        ORDER BY j.created_at ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+      )`,
     )
     .returning();
 
@@ -734,6 +771,7 @@ async function processStructureJob(
 
   const stashed = (resultPayload ?? {}) as {
     reference_urls?: string[];
+    auto_activate?: boolean;
   };
 
   await runStructureAuthoring({
@@ -744,6 +782,26 @@ async function processStructureJob(
       referenceUrls: stashed.reference_urls ?? [],
     },
   });
+
+  // Auto-provisioned boards finish the job themselves.
+  //
+  // The admin path stops here and waits for a Learning Expert to press
+  // activate, which is what enqueues the bank_seed jobs. A board created
+  // because a candidate turned up with an unknown specialisation has
+  // nobody waiting to press anything, so without this it would sit with
+  // structure and an empty bank forever, which is the exact stall this
+  // flag exists to end. PRD §17 already exempts provisional boards from
+  // the cell-approval gate, so activating here is consistent with it
+  // rather than a shortcut around it.
+  if (stashed.auto_activate) {
+    const { markActivated } = await import("./activator");
+    const { enqueueBankSeedJobs } = await import("./bank-seed-enqueue");
+    await markActivated(skillboardId);
+    const enqueued = await enqueueBankSeedJobs(skillboardId);
+    console.info(
+      `[authoring] auto-activated ${skillboardId} and enqueued ${enqueued} bank_seed job(s)`,
+    );
+  }
 }
 
 /* ---------- Worker: bank-seed job ---------- */
@@ -1020,7 +1078,7 @@ Return ONLY a JSON object matching this shape:
       correct_answer: z.array(z.string()).max(8).optional(),
       scoring_rubric: z.string().min(40).max(2000),
       difficulty_score: z.number().int().min(1).max(10),
-      competency_area: z.string().max(60).optional(),
+      competency_area: cappedString(60).optional(),
       weight: z.number().int().min(50).max(200).default(100),
       interactive_config: z.unknown().optional(),
     }),

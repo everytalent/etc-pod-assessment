@@ -1,6 +1,10 @@
 /**
  * Seed script — idempotent. Re-running wipes and re-creates the demo data.
  *
+ * "Demo data" is not the same thing as "the demo assessment". Real
+ * candidates have taken the demo, so main() refuses to wipe when it finds
+ * responses from anyone other than a seeded @example.test fixture.
+ *
  * Creates per /db spec:
  *   1 admin user (Supabase Auth, only if SUPABASE_SERVICE_ROLE_KEY is set)
  *   1 demo assessment ("Solar Tech POD Vetting — Demo")
@@ -113,15 +117,20 @@ const DEMO_QUESTIONS: DemoQuestion[] = [
     section: "safety",
   },
   {
-    questionText: "MPPT stands for:",
+    // Was "MPPT stands for:" with four expansions of the acronym. Same
+    // underlying knowledge, but the acronym version could be passed by
+    // anyone who had skimmed a datasheet and failed by an installer who
+    // sets these windows every week. This asks what they would do.
+    questionText:
+      "A 12-module string reads 560V open-circuit on a cold morning. The inverter's MPPT window is 200-550V. What do you do before energising?",
     type: "mcq",
     options: [
-      { id: "a", label: "Multi-Phase Power Tracker" },
-      { id: "b", label: "Maximum Power Point Tracking" },
-      { id: "c", label: "Module Peak Performance Test" },
-      { id: "d", label: "Microgrid Power Pulse Transfer" },
+      { id: "a", label: "Shorten the string so cold-morning voltage falls inside the window" },
+      { id: "b", label: "Energise anyway, since voltage drops once the modules warm up" },
+      { id: "c", label: "Leave the string and raise the inverter's maximum input setting" },
+      { id: "d", label: "Add two more modules so the string reaches the inverter's rated power" },
     ],
-    correctAnswer: ["b"],
+    correctAnswer: ["a"],
     points: 4,
     negativePoints: 0,
     section: "fundamentals",
@@ -224,9 +233,37 @@ function correctnessRollFor(band: "strong" | "average" | "weak"): number {
 async function main() {
   console.log("[seed] starting…");
 
+  // Wipe demo data. Cascading FK from assessments handles everything else.
+  //
+  // Except the demo assessment stopped being purely demo: real people
+  // have taken it. Five real submissions were sitting behind this DELETE
+  // when the guard was added, one of them still in progress. The
+  // cascade would have taken them silently, and the seeded rows look
+  // identical to the real ones in every listing that matters.
+  //
+  // Seeded candidates always use @example.test, so anything else is a
+  // person. Refuse to run rather than destroy their results.
+  const [{ real }] = (await db.execute(sql`
+    SELECT count(*)::int AS real
+    FROM responses r
+    JOIN assessments a ON a.id = r.assessment_id
+    WHERE a.slug = 'demo'
+      AND r.candidate_email NOT LIKE '%@example.test'
+  `)) as unknown as Array<{ real: number }>;
+
+  if (real > 0 && process.env.SEED_FORCE !== "true") {
+    throw new Error(
+      `[seed] refusing to wipe: the demo assessment holds ${real} real ` +
+        `candidate response(s) that are not seeded fixtures. Re-seeding ` +
+        `deletes them permanently via the assessments cascade. Move or ` +
+        `export them first, or set SEED_FORCE=true if you genuinely mean ` +
+        `to destroy them.`,
+    );
+  }
+
+
   await seedAdminUser();
 
-  // Wipe demo data. Cascading FK from assessments handles everything else.
   console.log("[seed] wiping existing demo assessment if present…");
   await db.execute(sql`DELETE FROM assessments WHERE slug = 'demo'`);
 

@@ -38,7 +38,12 @@ import {
   skillboards,
   type ResponseMetadata,
 } from "@/lib/db/schema";
+import {
+  ensureBankForSkillboard,
+  ensureSkillboardForSpecialisation,
+} from "@/lib/engines/assessment/auto-provision";
 import { deduceBand } from "@/lib/engines/assessment/band-deducer";
+import { addToWaitlist } from "@/lib/engines/assessment/waitlist";
 import { getOnboardingProfile } from "@/lib/engines/assessment/onboarding-client";
 import { getOrCreateValidationBank } from "@/lib/engines/assessment/proposals/validation-bank";
 import { findSkillboardForSpecialisation } from "@/lib/engines/assessment/specialisation-matcher";
@@ -175,6 +180,69 @@ export async function POST(req: Request): Promise<NextResponse> {
     resolved.push({ specialisation: spec, bankAssessmentId: bank.id });
   }
 
+  // Nothing resolved, so the candidate is about to be turned away.
+  // Before doing that, start building what they need. Unknown
+  // specialisations get a skillboard authored; activated boards with an
+  // empty bank get their seed jobs re-queued. Both are DB-only here and
+  // add a few milliseconds: the model work happens on the authoring
+  // queue, which the cron drains every five minutes.
+  //
+  // This is what makes the candidate-facing "we'll have it ready"
+  // message true. It used to be told to people while nothing at all was
+  // being prepared and no admin had been alerted.
+  const provisioning: Array<{
+    specialisation: string;
+    outcome: string;
+  }> = [];
+  if (resolved.length === 0) {
+    // Record them before doing anything else, so the promise the UI is
+    // about to make ("we'll email you the moment it's ready") has
+    // something behind it even if provisioning itself fails.
+    for (const spec of [...unknown, ...emptyBanks]) {
+      try {
+        await addToWaitlist({
+          candidateId: input.candidate_id,
+          candidateEmail: profile.email,
+          candidateName: profile.full_name,
+          specialisation: spec,
+          reason: unknown.includes(spec) ? "unknown" : "empty_bank",
+        });
+      } catch (err) {
+        console.error(
+          `[sessions] waitlist insert failed for "${spec}": ${String(err)}`,
+        );
+      }
+    }
+
+    for (const spec of unknown) {
+      try {
+        const r = await ensureSkillboardForSpecialisation(spec);
+        provisioning.push({ specialisation: spec, outcome: r.kind });
+      } catch (err) {
+        // Never let provisioning failure change the response the
+        // candidate gets; they are already being told to wait.
+        console.error(
+          `[sessions] auto-provision failed for "${spec}": ${String(err)}`,
+        );
+        provisioning.push({ specialisation: spec, outcome: "error" });
+      }
+    }
+    for (const spec of emptyBanks) {
+      try {
+        const m = await findSkillboardForSpecialisation(spec);
+        if (m.kind === "match") {
+          const r = await ensureBankForSkillboard(m.skillboardId);
+          provisioning.push({ specialisation: spec, outcome: r.kind });
+        }
+      } catch (err) {
+        console.error(
+          `[sessions] bank top-up failed for "${spec}": ${String(err)}`,
+        );
+        provisioning.push({ specialisation: spec, outcome: "error" });
+      }
+    }
+  }
+
   // Build pending_specs — every spec that didn't resolve, with its reason.
   // Useful for the Onboarding-side dialog to say "Solar Installation is
   // ready, Site Assessment will email you when ready" rather than blocking
@@ -201,6 +269,7 @@ export async function POST(req: Request): Promise<NextResponse> {
           error: "unknown_specialisation",
           message: `No skillboard for: ${unknown.join(", ")}`,
           unknown,
+          provisioning,
           pending_specs: pendingSpecs,
           match_trace: matchTrace,
         },
@@ -213,6 +282,7 @@ export async function POST(req: Request): Promise<NextResponse> {
           error: "skillboard_not_activated",
           message: `Skillboard(s) exist but not activated: ${inactive.join(", ")}`,
           inactive,
+          provisioning,
           pending_specs: pendingSpecs,
           match_trace: matchTrace,
         },
@@ -224,6 +294,7 @@ export async function POST(req: Request): Promise<NextResponse> {
         error: "validation_bank_empty",
         message: `Validation Bank has zero approved questions for: ${emptyBanks.join(", ")}`,
         empty_banks: emptyBanks,
+        provisioning,
         pending_specs: pendingSpecs,
         match_trace: matchTrace,
       },

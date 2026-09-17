@@ -9,15 +9,38 @@
 
 import { getAssessmentBySlug } from "@/lib/assessment/queries";
 
+import { ReturnToProfile } from "./ReturnToProfile";
+
 export const dynamic = "force-dynamic";
 
 export default async function AssessDonePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ next?: string }>;
 }) {
   const { slug } = await params;
+  const { next } = await searchParams;
   const assessment = await getAssessmentBySlug(slug);
+
+  // `next` arrives in the URL from POST /api/sessions/finalize, which
+  // read it off the response metadata the caller supplied. It is
+  // therefore attacker-influencable in principle, so only absolute
+  // http(s) URLs are honoured: anything else (javascript:, data:, a
+  // malformed string) is dropped and the candidate simply sees the
+  // outro without a button, exactly as before.
+  let returnHref: string | null = null;
+  if (next) {
+    try {
+      const parsed = new URL(next);
+      if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+        returnHref = parsed.toString();
+      }
+    } catch {
+      returnHref = null;
+    }
+  }
 
   // Cookie cleanup now happens inside POST /api/sessions/finalize
   // (Next.js 16 forbids cookie mutation in Server Components). If a
@@ -27,7 +50,7 @@ export default async function AssessDonePage({
 
   const outroText =
     assessment?.outroText ||
-    "Thanks — your responses are submitted. We'll be in touch on WhatsApp within 48 hours.";
+    "Thanks, your responses are submitted. Your result lands on your talent profile, and the team will follow up on the POD platform.";
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-md items-center justify-center px-6 py-10">
@@ -42,6 +65,7 @@ export default async function AssessDonePage({
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
           {outroText}
         </p>
+        {returnHref && <ReturnToProfile href={returnHref} />}
       </div>
     </main>
   );

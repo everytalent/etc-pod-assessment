@@ -32,6 +32,7 @@ import { and, asc, eq, lt } from "drizzle-orm";
 import { db } from "../../lib/db/client.js";
 import { skillboardAuthoringJobs, tenantAssessmentBank } from "../../lib/db/schema.js";
 import { processNextAuthoringJob } from "../../lib/engines/assessment/skillboards/claude-author.js";
+import { notifyReadyWaitlists } from "../../lib/engines/assessment/waitlist.js";
 import {
   processOneTenantBankFromQueue,
   rescueStuckTenantBanks,
@@ -192,6 +193,28 @@ export default async function handler() {
     }
   }
 
+  // ----- Step 4: waitlist sweep -----
+  //
+  // Runs after the queues drain, which is precisely when a bank may
+  // have just crossed from unusable to usable. Candidates turned away
+  // for that specialisation get told it is open; it is the only thing
+  // that makes the "we'll email you the moment it's ready" message the
+  // candidate was shown actually true.
+  let waitlist = { specialisationsChecked: 0, emailsSent: 0, failures: 0 };
+  try {
+    waitlist = await notifyReadyWaitlists();
+    if (waitlist.emailsSent > 0 || waitlist.failures > 0) {
+      console.log(
+        `[bg-worker] waitlist: ${waitlist.emailsSent} emailed, ${waitlist.failures} failed`,
+      );
+    }
+  } catch (err) {
+    console.warn(
+      "[bg-worker] waitlist sweep errored:",
+      err instanceof Error ? err.message : "unknown",
+    );
+  }
+
   void tenantAssessmentBank; // import-keep — surface in this file for future tweaks
 
   const totalMs = Date.now() - startedAt;
@@ -206,6 +229,7 @@ export default async function handler() {
       duration_ms: totalMs,
       jobs_processed: outcomes.length,
       tenant_banks_processed: tenantOutcomes.length,
+      waitlist,
       outcomes,
       tenant_outcomes: tenantOutcomes,
     }),
