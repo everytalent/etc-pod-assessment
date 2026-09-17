@@ -134,13 +134,25 @@ async function pickFromCell(
     // Preferred path: board membership comes from the anchor chain, so
     // a question belongs to the board its task actually sits under —
     // regardless of what the free-text specialisation column claims.
+    //
+    // Deliberately does NOT require sb.activated_at. Activation is the
+    // ETC-curated gate, and PRD §17 exempts tenant-builder provisional
+    // boards from it by design: they are never activated, and their
+    // candidates are meant to be assessed anyway. Requiring it here
+    // excluded every question on a tenant board, so a tenant assessment
+    // with 74 questions served none and submitted the candidate
+    // immediately with a blank result.
+    //
+    // Whether a board is live is the caller's call, not the picker's.
+    // /api/internal/sessions already refuses an inactive board with
+    // skillboard_not_activated for the ETC flow; the tenant flow
+    // deliberately does not go through that check.
     conditions.push(sql`EXISTS (
       SELECT 1 FROM ${tasks} t
       JOIN ${skills} sk ON sk.id = t.skill_id
       JOIN ${skillboards} sb ON sb.id = sk.skillboard_id
       WHERE t.id = ${questions.taskId}
         AND sb.id = ${skillboardId}
-        AND sb.activated_at IS NOT NULL
     )`);
   } else {
     // Fallback for specialisations with no resolvable skillboard (legacy
