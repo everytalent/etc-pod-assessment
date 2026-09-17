@@ -12,6 +12,7 @@
  */
 
 import { and, desc, eq } from "drizzle-orm";
+import { callKimiChat } from "@/lib/ai/kimi";
 
 import { db } from "@/lib/db/client";
 import {
@@ -23,10 +24,9 @@ import {
   type SeniorityBand,
 } from "@/lib/db/schema";
 import { costUsdX10000 } from "@/lib/ai/pricing";
-import { asciiSafeJsonStringify } from "@/lib/tenant/sanitise";
 
-const KIMI_ENDPOINT = "https://api.moonshot.ai/v1/chat/completions";
-const KIMI_MODEL = process.env.KIMI_MODEL ?? "moonshot-v1-8k";
+// Endpoint and model selection live in lib/ai/kimi.ts so a Moonshot
+// model rename is fixed in one place rather than three.
 
 export async function updateLearningSummaryOnOverride(args: {
   validationResultId: string;
@@ -151,37 +151,19 @@ Return ONLY the updated summary text (no markdown, no JSON).`;
 }
 
 async function callKimiSummary(prompt: string): Promise<string> {
-  const apiKey = process.env.KIMI_API_KEY;
-  if (!apiKey) throw new Error("KIMI_API_KEY not set");
-
-  const res = await fetch(KIMI_ENDPOINT, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: asciiSafeJsonStringify({
-      model: KIMI_MODEL,
-      temperature: 0.3,
-      max_tokens: 800,
-      messages: [{ role: "user", content: prompt }],
-    }),
+  const {
+    text: rawText,
+    inputTokens,
+    outputTokens,
+  } = await callKimiChat({
+    prompt,
+    temperature: 0.3,
+    maxTokens: 800,
+    // This prompt asks for prose, not JSON.
+    json: false,
   });
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Kimi summary ${res.status}: ${body.slice(0, 200)}`);
-  }
-
-  const data = (await res.json()) as {
-    choices?: { message?: { content?: string } }[];
-    usage?: { prompt_tokens?: number; completion_tokens?: number };
-  };
-  const text = data.choices?.[0]?.message?.content?.trim() ?? "";
+  const text = rawText.trim();
   if (!text) throw new Error("Kimi returned empty summary");
-
-  const inputTokens = data.usage?.prompt_tokens ?? 0;
-  const outputTokens = data.usage?.completion_tokens ?? 0;
   await db.insert(aiSpendLedger).values({
     model: "kimi",
     purpose: "learning_summary",

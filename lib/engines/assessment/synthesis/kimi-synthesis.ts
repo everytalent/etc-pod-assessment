@@ -23,7 +23,6 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "@/lib/db/client";
-import { asciiSafeJsonStringify } from "@/lib/tenant/sanitise";
 import {
   aiScores,
   aiSpendLedger,
@@ -45,11 +44,12 @@ import {
   LEVEL_LABELS,
 } from "@/lib/engines/assessment/types";
 import { deriveCadre } from "@/lib/engines/assessment/cadre-deriver";
+import { callKimiChat } from "@/lib/ai/kimi";
 import { costUsdX10000 } from "@/lib/ai/pricing";
 import { notify } from "@/lib/notify";
 
-const KIMI_ENDPOINT = "https://api.moonshot.ai/v1/chat/completions";
-const KIMI_MODEL = process.env.KIMI_MODEL ?? "moonshot-v1-32k";
+// Endpoint and model selection live in lib/ai/kimi.ts so a Moonshot
+// model rename is fixed in one place rather than three.
 
 /* ---------- Output schema (validated against enum sets) ---------- */
 
@@ -317,38 +317,11 @@ async function callKimi(
   userPrompt: string,
   maxTokens: number,
 ): Promise<{ text: string; inputTokens: number; outputTokens: number }> {
-  const apiKey = process.env.KIMI_API_KEY;
-  if (!apiKey) throw new Error("KIMI_API_KEY not set");
-
-  const res = await fetch(KIMI_ENDPOINT, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: asciiSafeJsonStringify({
-      model: KIMI_MODEL,
-      temperature: 0.2,
-      max_tokens: maxTokens,
-      response_format: { type: "json_object" },
-      messages: [{ role: "user", content: userPrompt }],
-    }),
+  const { text, inputTokens, outputTokens } = await callKimiChat({
+    prompt: userPrompt,
+    maxTokens,
+    temperature: 0.2,
   });
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Kimi ${res.status}: ${body.slice(0, 200)}`);
-  }
-
-  const data = (await res.json()) as {
-    choices?: { message?: { content?: string } }[];
-    usage?: { prompt_tokens?: number; completion_tokens?: number };
-  };
-  const text = data.choices?.[0]?.message?.content ?? "";
-  if (!text) throw new Error("Kimi returned empty content");
-
-  const inputTokens = data.usage?.prompt_tokens ?? 0;
-  const outputTokens = data.usage?.completion_tokens ?? 0;
 
   await db.insert(aiSpendLedger).values({
     model: "kimi",

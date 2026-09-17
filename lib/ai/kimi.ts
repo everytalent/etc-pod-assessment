@@ -15,11 +15,45 @@ import {
 } from "./scoring";
 
 const KIMI_ENDPOINT = "https://api.moonshot.ai/v1/chat/completions";
-// Moonshot's global API ships under moonshot-v1-* model IDs (kimi-k2 is
-// the open-source release name, not an API model). 8k context is enough
-// for question + rubric + transcript answer; bump to moonshot-v1-32k via
-// KIMI_MODEL env if you grade longer responses.
-const DEFAULT_MODEL = "moonshot-v1-8k";
+
+/**
+ * Model ids to try, in order, until one is not rejected as unknown.
+ *
+ * This used to be a single hard-coded "moonshot-v1-8k", on the note that
+ * kimi-k2 was an open-source release name rather than an API model. That
+ * stopped being true: Moonshot retired the moonshot-v1-* generation on
+ * the international platform and serves the kimi-k2 family instead, so
+ * every scoring call started coming back 404 "model not found". Kimi is
+ * one of two cross-checking scorers, so the effect was silent rather
+ * than loud: answers still got a Gemini score, they just stopped being
+ * cross-checked, and the consensus they were supposed to feed never
+ * happened.
+ *
+ * A list rather than a constant because this has now broken once on a
+ * vendor rename and will again. KIMI_MODEL still wins outright when set,
+ * so a new id can be rolled out through env without a deploy; the rest
+ * is a self-healing fallback, newest first, with the legacy id kept last
+ * for any account still provisioned against it.
+ */
+const MODEL_CANDIDATES = [
+  "kimi-k2-0905-preview",
+  "kimi-k2-turbo-preview",
+  "kimi-k2-0711-preview",
+  "moonshot-v1-8k",
+] as const;
+
+/**
+ * The candidate that last worked. Cached for the life of the process so
+ * we pay the discovery cost once per cold start, not once per answer.
+ */
+let resolvedModel: string | null = null;
+
+function modelsToTry(): string[] {
+  const configured = process.env.KIMI_MODEL?.trim();
+  if (configured) return [configured];
+  if (resolvedModel) return [resolvedModel];
+  return [...MODEL_CANDIDATES];
+}
 
 type KimiResponse = {
   choices?: { message?: { content?: string } }[];
@@ -32,8 +66,7 @@ function getApiKey(): string {
   return key;
 }
 
-async function callKimiOnce(prompt: string): Promise<string> {
-  const model = process.env.KIMI_MODEL ?? DEFAULT_MODEL;
+async function callKimiOnce(prompt: string, model: string): Promise<string> {
   const res = await fetch(KIMI_ENDPOINT, {
     method: "POST",
     headers: {
@@ -74,18 +107,53 @@ async function callKimiOnce(prompt: string): Promise<string> {
  * input (400) are surfaced immediately — retrying won't help.
  */
 async function callKimi(prompt: string): Promise<string> {
+  const candidates = modelsToTry();
+  let lastErr: unknown;
+
+  for (const model of candidates) {
+    try {
+      const out = await callKimiWithRetries(prompt, model);
+      // Remember what worked so later answers skip straight to it.
+      resolvedModel = model;
+      if (candidates.length > 1 && model !== candidates[0]) {
+        console.info(
+          `[kimi] using model "${model}" (earlier candidates were rejected)`,
+        );
+      }
+      return out;
+    } catch (err) {
+      lastErr = err;
+      // Only an unknown-model answer justifies trying the next id.
+      // Anything else (auth, rate limit, outage) would fail identically
+      // on every candidate, so failing fast beats hammering the API
+      // once per model.
+      if ((err as { status?: number }).status !== 404) throw err;
+    }
+  }
+
+  throw lastErr;
+}
+
+/**
+ * Retries one model on genuinely transient failures. 404 is deliberately
+ * NOT retried here: a model id is either served or it is not, and the
+ * old code spent three attempts and two backoffs discovering that on
+ * every single answer. Choosing another id is callKimi's job.
+ */
+async function callKimiWithRetries(
+  prompt: string,
+  model: string,
+): Promise<string> {
   const MAX_ATTEMPTS = 3;
   let lastErr: unknown;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      return await callKimiOnce(prompt);
+      return await callKimiOnce(prompt, model);
     } catch (err) {
       lastErr = err;
       const status = (err as { status?: number }).status;
       const transient =
-        status === 429 ||
-        status === 404 ||
-        (typeof status === "number" && status >= 500);
+        status === 429 || (typeof status === "number" && status >= 500);
       if (!transient || attempt === MAX_ATTEMPTS) throw err;
       // Exponential backoff: 400 ms, 1200 ms.
       await new Promise((r) => setTimeout(r, 400 * attempt ** 2));
@@ -112,7 +180,13 @@ function humaniseKimiError(status: number, body: string): string {
     return `Kimi is having a moment (${status}). Try again soon.`;
   }
   if (status === 404) {
-    return `Kimi model not found. Set KIMI_MODEL to a valid Moonshot model id.`;
+    return (
+      "Kimi rejected every model id we know: " +
+      MODEL_CANDIDATES.join(", ") +
+      ". Moonshot has probably renamed them again. Set KIMI_MODEL to a " +
+      "current id from https://platform.moonshot.ai and it takes effect " +
+      "without a deploy."
+    );
   }
   return message ? `Kimi ${status}: ${message.slice(0, 140)}` : `Kimi ${status} error.`;
 }
@@ -125,4 +199,92 @@ export async function scoreOpenEndedKimi(args: {
 }): Promise<ScoreSuggestion> {
   const raw = await callKimi(buildScoringPrompt(args));
   return parseScoreSuggestion(raw, args.maxPoints);
+}
+
+/* ---------- Shared chat helper ---------- */
+
+export const KIMI_CHAT_ENDPOINT = KIMI_ENDPOINT;
+
+export interface KimiChatResult {
+  text: string;
+  inputTokens: number;
+  outputTokens: number;
+  /** Which candidate id actually answered. Useful in logs. */
+  model: string;
+}
+
+/**
+ * One Moonshot chat call, with the same model fallback the scorer uses.
+ *
+ * Synthesis and the learning-summary updater each had their own copy of
+ * the endpoint, their own hard-coded moonshot-v1-* default and their own
+ * fetch, so the vendor's model rename broke all three independently and
+ * would have had to be fixed in three places. They share this now, which
+ * means a future rename is one list in one file.
+ */
+export async function callKimiChat(args: {
+  prompt: string;
+  maxTokens?: number;
+  temperature?: number;
+  /**
+   * Ask for a JSON object back. Defaults true, because most callers here
+   * parse structured output. The learning-summary updater wants prose
+   * and explicitly asks for "no JSON", so it passes false: forcing
+   * json_object on that prompt would have it return a quoted blob the
+   * summary renderer then shows verbatim to a learner.
+   */
+  json?: boolean;
+}): Promise<KimiChatResult> {
+  const candidates = modelsToTry();
+  let lastErr: unknown;
+
+  for (const model of candidates) {
+    try {
+      const res = await fetch(KIMI_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${getApiKey()}`,
+        },
+        body: asciiSafeJsonStringify({
+          model,
+          temperature: args.temperature ?? 0.2,
+          ...(args.maxTokens ? { max_tokens: args.maxTokens } : {}),
+          ...(args.json === false
+            ? {}
+            : { response_format: { type: "json_object" as const } }),
+          messages: [{ role: "user", content: args.prompt }],
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        const err = new Error(humaniseKimiError(res.status, body)) as Error & {
+          status?: number;
+        };
+        err.status = res.status;
+        throw err;
+      }
+
+      const data = (await res.json()) as {
+        choices?: { message?: { content?: string } }[];
+        usage?: { prompt_tokens?: number; completion_tokens?: number };
+      };
+      const text = data.choices?.[0]?.message?.content ?? "";
+      if (!text) throw new Error("Kimi returned empty content");
+
+      resolvedModel = model;
+      return {
+        text,
+        inputTokens: data.usage?.prompt_tokens ?? 0,
+        outputTokens: data.usage?.completion_tokens ?? 0,
+        model,
+      };
+    } catch (err) {
+      lastErr = err;
+      if ((err as { status?: number }).status !== 404) throw err;
+    }
+  }
+
+  throw lastErr;
 }
