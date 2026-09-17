@@ -28,7 +28,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { db } from "@/lib/db/client";
-import { sendEmail } from "@/lib/email/resend";
+import { EmailNotConfiguredError, sendEmail } from "@/lib/email/resend";
 import {
   assessments,
   responses,
@@ -151,9 +151,19 @@ export async function POST(
         `,
       });
     } catch (err) {
-      // Best effort: log and continue. If email fails they can request
-      // a resend and we'd rather not fail-closed on a Resend blip.
       console.error("verify code email failed", err);
+
+      // An unset key is not something the candidate can wait out, so it
+      // gets its own code and the screen stops telling them to retry.
+      if (err instanceof EmailNotConfiguredError) {
+        return NextResponse.json(
+          { error: "email_not_configured" },
+          { status: 503 },
+        );
+      }
+
+      // A genuine send failure is worth retrying, so it keeps the
+      // retryable message.
       return NextResponse.json(
         { error: "email_send_failed" },
         { status: 502 },

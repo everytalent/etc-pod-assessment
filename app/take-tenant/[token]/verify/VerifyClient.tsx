@@ -38,7 +38,10 @@ export function VerifyClient({
         setError(
           body.error === "email_send_failed"
             ? "We couldn't email the code. Try again in a moment."
-            : `Could not send the code (${body.error ?? res.status}).`,
+            : body.error === "email_not_configured"
+              // Retrying cannot fix this one, so do not ask them to.
+              ? "We can't send verification codes right now. This is on our side, not yours. Please contact the person who sent you this link and we'll get you in."
+              : `Could not send the code (${body.error ?? res.status}).`,
         );
         setPhase("entering");
         return;

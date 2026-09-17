@@ -22,10 +22,41 @@ type SendArgs = {
 
 type ResendResponse = { id: string };
 
+/**
+ * Thrown when email cannot be sent because nothing is configured to send
+ * it, as opposed to a send that was attempted and failed.
+ *
+ * Callers need to tell these apart. A transport blip is worth retrying
+ * and worth telling the user to retry; an unset key never resolves on
+ * its own, and inviting someone to "try again in a moment" for it leaves
+ * them tapping a button forever. That is exactly what candidates hit on
+ * the tenant assessment verification screen: RESEND_API_KEY was not set
+ * on the site at all, so no verification code could ever be sent and the
+ * screen kept asking them to try again.
+ */
+export class EmailNotConfiguredError extends Error {
+  readonly code = "email_not_configured";
+  constructor() {
+    super(
+      "RESEND_API_KEY is not set, so no email can be sent. This is a " +
+        "configuration gap, not a transient failure: set it in the site's " +
+        "environment variables.",
+    );
+    this.name = "EmailNotConfiguredError";
+  }
+}
+
 export async function sendEmail(args: SendArgs): Promise<ResendResponse> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
-    throw new Error("RESEND_API_KEY is not set");
+    // Loud on the server, because nothing downstream can recover from it
+    // and the symptom (a user stuck on a code screen) looks nothing like
+    // the cause.
+    console.error(
+      "[email] RESEND_API_KEY is not set — dropping message:",
+      args.subject,
+    );
+    throw new EmailNotConfiguredError();
   }
   const res = await fetch(RESEND_ENDPOINT, {
     method: "POST",
