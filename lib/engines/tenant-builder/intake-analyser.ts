@@ -26,7 +26,39 @@ import { callOpusRaw, withOpusBudget } from "@/lib/ai/opus";
 import type { TenantIntakeType } from "@/lib/db/schema";
 import { sanitiseUserText } from "@/lib/tenant/sanitise";
 
-export const intakeAnalysisSchema = z.object({
+export /**
+ * A free-form list the model fills in, tolerant of the model overshooting.
+ *
+ * These caps exist to bound what goes into later prompts, not to assert
+ * anything about the role. A strict .max() turned "the model listed eleven
+ * standards instead of ten" into a hard failure that killed an entire
+ * generation the tenant was waiting on, which is a wildly disproportionate
+ * response to a list being slightly long. Overlong lists are trimmed, items
+ * too long are truncated, and empty or non-string entries are dropped.
+ *
+ * Anything that is not an array at all still fails, because that means the
+ * model returned a different shape and the rest of the pipeline cannot use it.
+ */
+function looseStringList(opts: {
+  maxItems: number;
+  maxLen: number;
+  minItems?: number;
+}) {
+  return z.preprocess((value) => {
+    if (!Array.isArray(value)) return value;
+    const cleaned: string[] = [];
+    for (const item of value) {
+      if (typeof item !== "string") continue;
+      const trimmed = item.trim();
+      if (trimmed.length < 2) continue;
+      cleaned.push(trimmed.slice(0, opts.maxLen));
+      if (cleaned.length >= opts.maxItems) break;
+    }
+    return cleaned;
+  }, z.array(z.string().min(2).max(opts.maxLen)).min(opts.minItems ?? 0).max(opts.maxItems));
+}
+
+const intakeAnalysisSchema = z.object({
   /** Best-guess role label the assessment should anchor against. */
   specialisation_guess: z.string().min(3).max(120),
   /** Coarse seniority hint; null when input is genuinely ambiguous.
@@ -67,18 +99,18 @@ export const intakeAnalysisSchema = z.object({
     }, z.enum(["junior", "mid", "senior", "mixed"]).nullable())
     .default(null),
   /** Free-form list — what the person actually does day-to-day. */
-  core_skills: z.array(z.string().min(2).max(120)).min(1).max(20),
+  core_skills: looseStringList({ maxItems: 20, maxLen: 120, minItems: 1 }),
   /** Named tools / standards / brands the role uses. Opus sometimes
    *  omits this for roles with no obvious tooling — default to empty. */
-  tools: z.array(z.string().min(2).max(80)).max(20).default([]),
+  tools: looseStringList({ maxItems: 20, maxLen: 80 }).default([]),
   /** Region cues lifted from the text (locations, regs, languages). */
-  region_cues: z.array(z.string().min(2).max(80)).max(10).default([]),
+  region_cues: looseStringList({ maxItems: 10, maxLen: 80 }).default([]),
   /** Project-specific extras — only meaningful for SOW intake. */
   project_scope: z
     .object({
       duration_label: z.string().min(2).max(80).nullable(),
       team_size: z.number().int().min(1).max(1000).nullable(),
-      key_deliverables: z.array(z.string().min(3).max(200)).max(15),
+      key_deliverables: looseStringList({ maxItems: 15, maxLen: 200 }),
     })
     .nullable()
     .default(null),
@@ -170,7 +202,9 @@ export async function analyseIntake(args: {
   if (args.roleLocation) {
     const loc = sanitiseUserText(args.roleLocation).trim();
     if (loc && !analysis.region_cues.includes(loc)) {
-      analysis.region_cues = [loc, ...analysis.region_cues];
+      // Prepended after validation, so re-apply the cap here rather than
+      // letting the tenant's own location push the list to eleven.
+      analysis.region_cues = [loc, ...analysis.region_cues].slice(0, 10);
     }
   }
   return analysis;
