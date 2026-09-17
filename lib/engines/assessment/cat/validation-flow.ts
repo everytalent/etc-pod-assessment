@@ -79,8 +79,8 @@ export async function advanceValidationFlow(args: {
   answeredQuestionIds: string[];
 }): Promise<ValidationFlowResult> {
   // Load the AI signal for the answer that just landed (band + level).
-  // If no AI score yet, the signal is null (CAT will still tick the
-  // window count even on null — keeps the engine moving).
+  // If no AI score yet, both fields come back null; the answer still
+  // counts toward the budget, it just carries no evidence about level.
   const [score] = await db
     .select({
       bandSignal: aiScores.bandSignal,
@@ -97,14 +97,19 @@ export async function advanceValidationFlow(args: {
     budget: args.budget,
   });
 
+  // Always pass a signal object here, even when the answer has no AI
+  // score yet. A null signal means "first call, nothing answered yet" to
+  // step(), and passing null for an unscored answer conflated the two:
+  // the answer stopped counting toward the budget entirely, so a session
+  // whose answers failed to score ran forever. The fields inside are
+  // null when we have no score; that is the honest shape, and step()
+  // moves its estimate only on the fields it actually got.
   const stepResult = step({
     current: snapshot,
-    signal: score
-      ? {
-          bandSignal: score.bandSignal as SeniorityBand | null,
-          levelSignal: score.levelSignal as PerformanceLevel | null,
-        }
-      : null,
+    signal: {
+      bandSignal: (score?.bandSignal as SeniorityBand | null) ?? null,
+      levelSignal: (score?.levelSignal as PerformanceLevel | null) ?? null,
+    },
   });
 
   await persistSnapshot({

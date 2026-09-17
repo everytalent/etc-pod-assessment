@@ -136,11 +136,27 @@ const CALIBRATING_WINDOW = 3;
 const PROBING_WINDOW = 3;
 
 /**
- * Minimum answered count before the engine may finalise. Prevents
- * degenerate end states like "2 answers, 50% confidence" that we
- * saw on early-end sessions.
+ * Minimum answered count before the engine may finalise.
+ *
+ * Raised from 5 to 15. Five was low enough that a candidate whose
+ * estimate settled quickly finished in seven or eight questions, which
+ * is a thin basis for a result someone gets matched to work on. Fifteen
+ * to eighteen is the agreed length.
+ *
+ * A spec can never be asked for more than its own budget, though: with
+ * several specialisations each gets a smaller slice, and requiring 15
+ * from a slice of 8 would run every multi-spec session past its cap.
+ * Hence effectiveMinimum below.
  */
-const MIN_QUESTIONS_BEFORE_END = 5;
+const MIN_QUESTIONS_BEFORE_END = 15;
+
+/**
+ * The floor actually applied: the minimum, or this spec's whole budget
+ * when that budget is smaller.
+ */
+function effectiveMinimum(budget: number): number {
+  return Math.min(MIN_QUESTIONS_BEFORE_END, budget);
+}
 
 /**
  * If the focus target (band+level) hasn't changed for N consecutive
@@ -157,15 +173,30 @@ export function step(args: {
   const { current, signal } = args;
   const next: CatSnapshot = { ...current, transitions: [...current.transitions] };
 
-  // Update estimate using the new signal (only if we have one).
-  if (signal && signal.levelSignal) {
-    const rank = LEVEL_RANK[signal.levelSignal];
-    // Rolling mean over the window — recency-weighted at 0.7 for the
-    // newest data, 0.3 for prior history. Simpler than CAT IRT models
-    // but adequate for the ETC validation use case.
-    next.estimateLevel = 0.3 * next.estimateLevel + 0.7 * rank;
+  // A question that was answered counts as answered, whether or not we
+  // managed to score it. This used to sit inside the signal check, so an
+  // answer with no AI score advanced nothing: not the count, not the
+  // window. With scoring unavailable (an exhausted Anthropic balance
+  // does exactly this) the budget could never be reached and the
+  // assessment simply never ended. One candidate answered 42 questions
+  // with zero of them scored. The file's own comment upstream already
+  // claimed the engine "will still tick the window count even on null";
+  // it did not.
+  //
+  // The ESTIMATE still moves only on a real signal, which is the part
+  // that genuinely needs one. An unscored answer advances the clock
+  // without pretending to be evidence about ability.
+  if (signal) {
     next.windowCount = next.windowCount + 1;
     next.answeredCount = next.answeredCount + 1;
+
+    if (signal.levelSignal) {
+      const rank = LEVEL_RANK[signal.levelSignal];
+      // Rolling mean over the window — recency-weighted at 0.7 for the
+      // newest data, 0.3 for prior history. Simpler than CAT IRT models
+      // but adequate for the ETC validation use case.
+      next.estimateLevel = 0.3 * next.estimateLevel + 0.7 * rank;
+    }
   }
 
   // Budget exhaustion always wins — but only after the minimum
@@ -174,7 +205,7 @@ export function step(args: {
   // "2 answers, 50% confidence" outcomes seen in early sessions.
   if (
     next.answeredCount >= next.budget &&
-    next.answeredCount >= MIN_QUESTIONS_BEFORE_END
+    next.answeredCount >= effectiveMinimum(next.budget)
   ) {
     next.state = "stabilised";
     return finalise(next);
@@ -275,7 +306,7 @@ export function step(args: {
 
     if (
       next.refiningStreak >= REFINING_STUCK_THRESHOLD &&
-      next.answeredCount >= MIN_QUESTIONS_BEFORE_END
+      next.answeredCount >= effectiveMinimum(next.budget)
     ) {
       recordTransition(
         next,

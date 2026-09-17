@@ -205,13 +205,28 @@ export function buildPlanEntry(args: {
 
 /* ---------- Per-spec budget table (PRD §4) ---------- */
 
+/**
+ * Questions per specialisation, sized so the WHOLE sitting lands in the
+ * 15-18 range rather than each spec getting a full-length assessment.
+ *
+ * The old table budgeted per spec without regard to the total: four
+ * specialisations meant 30 questions, and in practice sessions ran past
+ * 40 because the budget was not being enforced at all. A candidate is
+ * sitting one assessment, not four, and the time they will give it does
+ * not scale with how many specialisations they happen to list.
+ *
+ * Totals: 17 for one spec, 9+8 for two, 7+5+5 for three, 5+4+4+4 for
+ * four. Every row lands at 17, inside the 18 hard cap.
+ */
 export const PER_SPEC_BUDGET: Record<
   number,
   { primary: number; secondary: number; cap: number }
 > = {
-  1: { primary: 13, secondary: 0, cap: 15 },
-  2: { primary: 11, secondary: 9, cap: 22 },
-  3: { primary: 10, secondary: 7, cap: 27 },
-  4: { primary: 9, secondary: 6, cap: 30 },
+  1: { primary: 17, secondary: 0, cap: 17 },
+  2: { primary: 9, secondary: 8, cap: 17 },
+  3: { primary: 7, secondary: 5, cap: 17 },
+  4: { primary: 5, secondary: 4, cap: 17 },
 };
-export const HARD_QUESTION_CAP = 30;
+
+/** Absolute ceiling across every spec in one sitting. */
+export const HARD_QUESTION_CAP = 18;

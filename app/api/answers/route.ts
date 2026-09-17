@@ -43,6 +43,7 @@ import {
 } from "@/lib/assessment/validators";
 import { getTypeDef } from "@/lib/engines/assessment/question-types";
 import { advanceValidationFlow } from "@/lib/engines/assessment/cat/validation-flow";
+import { PER_SPEC_BUDGET } from "@/lib/engines/assessment/cat/picker";
 import {
   clearCandidateSession,
   getCandidateSession,
@@ -245,11 +246,25 @@ export async function POST(req: Request) {
         | "senior"
         | undefined) ?? "junior";
     const answered = (response.metadata.path ?? []).concat(question.id);
+
+    // Budget from the per-spec table rather than a flat 15, so a
+    // candidate listing several specialisations still sits one
+    // assessment of about the same length instead of one per spec.
+    // walk_order holds every sibling response in a multi-spec sitting;
+    // a single-spec session has no walk_order at all.
+    const meta = response.metadata as ResponseMetadata & {
+      walk_order?: string[];
+    };
+    const specCount = Math.max(1, Math.min(4, meta.walk_order?.length ?? 1));
+    const isPrimary = (meta.walk_order?.[0] ?? responseId) === responseId;
+    const budgetRow = PER_SPEC_BUDGET[specCount] ?? PER_SPEC_BUDGET[1]!;
+    const budget = isPrimary ? budgetRow.primary : budgetRow.secondary;
+
     const flow = await advanceValidationFlow({
       responseId,
       specialisation: assessment.specialisation,
       claimedBand,
-      budget: 15, // MVP — single-spec budget; multi-spec uses PER_SPEC_BUDGET later
+      budget,
       lastAnswerId: insertedAnswer.id,
       answeredQuestionIds: answered,
     });
@@ -274,10 +289,28 @@ export async function POST(req: Request) {
     return NextResponse.json(payload);
   }
 
+  // Re-read metadata before merging.
+  //
+  // `response.metadata` was loaded at the top of this request, BEFORE
+  // advanceValidationFlow ran. That flow persists the CAT snapshot onto
+  // metadata.adaptive_plan, so spreading the stale copy here overwrote
+  // the snapshot it had just written, on every single answer.
+  //
+  // The snapshot is what carries answeredCount, so it restarted from
+  // zero each time and the 15-question budget was never reached. That is
+  // how validation sessions ran to 42 and 50 questions over two hours
+  // instead of ending at 15.
+  const [fresh] = await db
+    .select({ metadata: responses.metadata })
+    .from(responses)
+    .where(eq(responses.id, responseId))
+    .limit(1);
+  const currentMetadata = (fresh?.metadata ?? response.metadata) as ResponseMetadata;
+
   const updatedMetadata: ResponseMetadata = {
-    ...response.metadata,
+    ...currentMetadata,
     last_question_shown_at: new Date().toISOString(),
-    path: [...(response.metadata.path ?? []), question.id],
+    path: [...(currentMetadata.path ?? []), question.id],
   };
   await db
     .update(responses)
