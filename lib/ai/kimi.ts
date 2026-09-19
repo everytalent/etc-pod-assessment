@@ -48,6 +48,44 @@ const MODEL_CANDIDATES = [
  */
 let resolvedModel: string | null = null;
 
+/**
+ * Ask Moonshot what it actually serves.
+ *
+ * The hard-coded list is a guess about someone else's product naming,
+ * and it has now been wrong twice: moonshot-v1-* was withdrawn, and the
+ * kimi-k2-* ids that replaced it were refused too. Rather than guess a
+ * third time, fall back to the provider's own catalogue and pick from
+ * it. Cached for the process, so this costs one extra request per cold
+ * start in the worst case and nothing at all once something works.
+ */
+async function discoverModels(): Promise<string[]> {
+  try {
+    const res = await fetch(KIMI_ENDPOINT.replace("/chat/completions", "/models"), {
+      headers: { Authorization: `Bearer ${getApiKey()}` },
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as { data?: { id?: string }[] };
+    const ids = (data.data ?? [])
+      .map((m) => m.id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0);
+
+    // Prefer chat models over embeddings, vision or anything else whose
+    // name marks it as a different shape of thing.
+    const excluded = /embed|whisper|tts|vision|image|rerank|moderation/i;
+    const usable = ids.filter((id) => !excluded.test(id));
+    // Newest-looking first: higher version numbers tend to sort later,
+    // and a turbo variant is cheaper for a scoring call than a flagship.
+    usable.sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+    if (usable.length > 0) {
+      console.info(`[kimi] discovered models: ${usable.slice(0, 5).join(", ")}`);
+    }
+    return usable;
+  } catch (err) {
+    console.warn(`[kimi] model discovery failed: ${String(err)}`);
+    return [];
+  }
+}
+
 function modelsToTry(): string[] {
   const configured = process.env.KIMI_MODEL?.trim();
   if (configured) return [configured];
@@ -127,6 +165,21 @@ async function callKimi(prompt: string): Promise<string> {
       // Anything else (auth, rate limit, outage) would fail identically
       // on every candidate, so failing fast beats hammering the API
       // once per model.
+      if ((err as { status?: number }).status !== 404) throw err;
+    }
+  }
+
+  // Every id we knew about was refused. Ask Moonshot for its catalogue
+  // and try what it names, rather than failing on our own stale guess.
+  for (const model of await discoverModels()) {
+    if (candidates.includes(model)) continue;
+    try {
+      const out = await callKimiWithRetries(prompt, model);
+      resolvedModel = model;
+      console.info(`[kimi] recovered via discovered model "${model}"`);
+      return out;
+    } catch (err) {
+      lastErr = err;
       if ((err as { status?: number }).status !== 404) throw err;
     }
   }
@@ -240,46 +293,24 @@ export async function callKimiChat(args: {
 
   for (const model of candidates) {
     try {
-      const res = await fetch(KIMI_ENDPOINT, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getApiKey()}`,
-        },
-        body: asciiSafeJsonStringify({
-          model,
-          temperature: args.temperature ?? 0.2,
-          ...(args.maxTokens ? { max_tokens: args.maxTokens } : {}),
-          ...(args.json === false
-            ? {}
-            : { response_format: { type: "json_object" as const } }),
-          messages: [{ role: "user", content: args.prompt }],
-        }),
-      });
-
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        const err = new Error(humaniseKimiError(res.status, body)) as Error & {
-          status?: number;
-        };
-        err.status = res.status;
-        throw err;
-      }
-
-      const data = (await res.json()) as {
-        choices?: { message?: { content?: string } }[];
-        usage?: { prompt_tokens?: number; completion_tokens?: number };
-      };
-      const text = data.choices?.[0]?.message?.content ?? "";
-      if (!text) throw new Error("Kimi returned empty content");
-
+      const out = await postKimiChat(args, model);
       resolvedModel = model;
-      return {
-        text,
-        inputTokens: data.usage?.prompt_tokens ?? 0,
-        outputTokens: data.usage?.completion_tokens ?? 0,
-        model,
-      };
+      return out;
+    } catch (err) {
+      lastErr = err;
+      if ((err as { status?: number }).status !== 404) throw err;
+    }
+  }
+
+  // Same recovery as the scorer: if every id we know is refused, use the
+  // provider's catalogue instead of failing on a stale guess.
+  for (const model of await discoverModels()) {
+    if (candidates.includes(model)) continue;
+    try {
+      const out = await postKimiChat(args, model);
+      resolvedModel = model;
+      console.info(`[kimi] recovered via discovered model "${model}"`);
+      return out;
     } catch (err) {
       lastErr = err;
       if ((err as { status?: number }).status !== 404) throw err;
@@ -287,4 +318,51 @@ export async function callKimiChat(args: {
   }
 
   throw lastErr;
+}
+
+/** One chat request against a named model. Extracted so the candidate
+ *  walk and the discovery fallback share exactly one request shape. */
+async function postKimiChat(
+  args: { prompt: string; maxTokens?: number; temperature?: number; json?: boolean },
+  model: string,
+): Promise<KimiChatResult> {
+  const res = await fetch(KIMI_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${getApiKey()}`,
+    },
+    body: asciiSafeJsonStringify({
+      model,
+      temperature: args.temperature ?? 0.2,
+      ...(args.maxTokens ? { max_tokens: args.maxTokens } : {}),
+      ...(args.json === false
+        ? {}
+        : { response_format: { type: "json_object" as const } }),
+      messages: [{ role: "user", content: args.prompt }],
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    const err = new Error(humaniseKimiError(res.status, body)) as Error & {
+      status?: number;
+    };
+    err.status = res.status;
+    throw err;
+  }
+
+  const data = (await res.json()) as {
+    choices?: { message?: { content?: string } }[];
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
+  };
+  const text = data.choices?.[0]?.message?.content ?? "";
+  if (!text) throw new Error("Kimi returned empty content");
+
+  return {
+    text,
+    inputTokens: data.usage?.prompt_tokens ?? 0,
+    outputTokens: data.usage?.completion_tokens ?? 0,
+    model,
+  };
 }

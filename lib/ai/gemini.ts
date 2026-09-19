@@ -12,14 +12,51 @@
 
 import { asciiSafeJsonStringify } from "@/lib/tenant/sanitise";
 
-// Per-call model. Transcription uses Flash (cheap, audio-native).
-// Scoring uses 2.5 Pro because rubric-grading benefits from stronger
-// reasoning and the cost is amortised over a small per-day volume of
-// admin reviews. (We tried `gemini-3.1` originally — Google doesn't
-// publish that name; v1beta returns 404. 2.5 Pro is the strongest stable
-// model on the public API as of 2026-05.)
-const TRANSCRIBE_MODEL = "gemini-2.5-flash";
-const SCORING_MODEL = "gemini-2.5-pro";
+/**
+ * Model ids to try, in order, until one is not refused.
+ *
+ * These were single constants pinned to gemini-2.5-*. Google withdrew
+ * 2.5 Pro from new keys ("no longer available to new users"), so every
+ * scoring call started returning 404 and answers stopped being scored
+ * altogether. Note the older comment this replaces: a previous attempt
+ * to pin gemini-3.1 failed because that name did not exist yet. Pinning
+ * one id breaks in both directions, whichever id you choose.
+ *
+ * So: a list, newest first, ending in a `-latest` alias that Google
+ * keeps pointed at something current. GEMINI_SCORING_MODEL and
+ * GEMINI_TRANSCRIBE_MODEL override outright, so a new name can be rolled
+ * out through env without a deploy.
+ */
+const TRANSCRIBE_CANDIDATES = [
+  "gemini-3.5-flash",
+  "gemini-flash-latest",
+  "gemini-2.5-flash",
+] as const;
+
+const SCORING_CANDIDATES = [
+  "gemini-3.1-pro-preview",
+  "gemini-pro-latest",
+  "gemini-2.5-pro",
+] as const;
+
+/** Whichever candidate last worked, per role, cached for the process. */
+const resolvedModel: Record<"scoring" | "transcribe", string | null> = {
+  scoring: null,
+  transcribe: null,
+};
+
+function modelsToTry(role: "scoring" | "transcribe"): string[] {
+  const configured =
+    role === "scoring"
+      ? process.env.GEMINI_SCORING_MODEL?.trim()
+      : process.env.GEMINI_TRANSCRIBE_MODEL?.trim();
+  if (configured) return [configured];
+  const cached = resolvedModel[role];
+  if (cached) return [cached];
+  return [
+    ...(role === "scoring" ? SCORING_CANDIDATES : TRANSCRIBE_CANDIDATES),
+  ];
+}
 
 function endpointFor(model: string): string {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
@@ -41,7 +78,35 @@ function getApiKey(): string {
   return key;
 }
 
-async function callGemini(parts: GeminiPart[], model: string): Promise<string> {
+/**
+ * Try each candidate id until one answers. Only a 404 (unknown or
+ * withdrawn model) moves to the next: a quota error or a safety block
+ * would fail identically on every id, so failing fast beats retrying the
+ * same refusal three times.
+ */
+async function callGemini(
+  parts: GeminiPart[],
+  role: "scoring" | "transcribe",
+): Promise<string> {
+  const candidates = modelsToTry(role);
+  let lastErr: unknown;
+  for (const model of candidates) {
+    try {
+      const out = await callGeminiOnce(parts, model);
+      resolvedModel[role] = model;
+      if (model !== candidates[0]) {
+        console.info(`[gemini] using "${model}" for ${role} (earlier ids refused)`);
+      }
+      return out;
+    } catch (err) {
+      lastErr = err;
+      if ((err as { status?: number }).status !== 404) throw err;
+    }
+  }
+  throw lastErr;
+}
+
+async function callGeminiOnce(parts: GeminiPart[], model: string): Promise<string> {
   const res = await fetch(`${endpointFor(model)}?key=${getApiKey()}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -49,7 +114,11 @@ async function callGemini(parts: GeminiPart[], model: string): Promise<string> {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(humaniseGeminiError(res.status, text));
+    const err = new Error(humaniseGeminiError(res.status, text)) as Error & {
+      status?: number;
+    };
+    err.status = res.status;
+    throw err;
   }
   const data = (await res.json()) as GeminiResponse;
   if (data.promptFeedback?.blockReason) {
@@ -142,7 +211,7 @@ export async function transcribeAudio(args: {
       },
       { inline_data: { mime_type: args.mimeType, data: base64 } },
     ],
-    TRANSCRIBE_MODEL,
+    "transcribe",
   );
 }
 
@@ -166,7 +235,7 @@ export async function scoreOpenEnded(args: {
 }): Promise<ScoreSuggestion> {
   const raw = await callGemini(
     [{ text: buildScoringPrompt(args) }],
-    SCORING_MODEL,
+    "scoring",
   );
   return parseScoreSuggestion(raw, args.maxPoints);
 }
