@@ -1,5 +1,13 @@
 /**
+ * GET  /api/internal/skillboards
  * POST /api/internal/skillboards
+ *
+ * GET is the platform shell's read of the framework: every live skillboard
+ * with its pending-cell count, and how many question-bank proposals are
+ * waiting for a human. Same rows as the admin list, gated on the service
+ * token because the shell at app.everytalentco.com has a platform session,
+ * not an assessment admin session. Read-only: approving a cell or a proposal
+ * stays in this app's admin UI, which carries the review workflow.
  *
  * Cross-engine contract: lets another ETC engine (today, the Training
  * Engine's course-creation wizard) commission a skillboard without an
@@ -15,17 +23,37 @@
  * Auth: Bearer service token (ETC_ASSESSMENT_SERVICE_TOKEN).
  */
 
-import { eq } from "drizzle-orm";
+import { count, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
 import { extractBearer, isValidServiceToken } from "@/lib/auth/service-token";
+import { db } from "@/lib/db/client";
+import { questionBankProposals } from "@/lib/db/schema";
 import { vetBrief } from "@/lib/engines/assessment/skillboards/brief-validator";
 import {
   createSkillboard,
   getSkillboardBySpecialisation,
+  listSkillboards,
 } from "@/lib/engines/assessment/skillboards/repository";
 import { createSkillboardClaudeInputSchema } from "@/lib/engines/assessment/skillboards/types";
+
+export async function GET(req: Request): Promise<NextResponse> {
+  if (!isValidServiceToken(extractBearer(req))) {
+    return NextResponse.json({ error: "unauthorised" }, { status: 401 });
+  }
+  const [skillboards, [pending]] = await Promise.all([
+    listSkillboards(),
+    db
+      .select({ n: count() })
+      .from(questionBankProposals)
+      .where(eq(questionBankProposals.status, "pending")),
+  ]);
+  return NextResponse.json({
+    skillboards,
+    proposals_pending: Number(pending?.n ?? 0),
+  });
+}
 
 export async function POST(req: Request): Promise<NextResponse> {
   if (!isValidServiceToken(extractBearer(req))) {
