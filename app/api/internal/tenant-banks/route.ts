@@ -267,3 +267,27 @@ export async function GET(req: Request): Promise<NextResponse> {
     failure_reason: row.failureReason ?? null,
   });
 }
+
+/**
+ * DELETE /api/internal/tenant-banks?id=<uuid>
+ *
+ * Retire a bank the platform created. Same soft delete as the tenant's own
+ * button: the candidate link stops admitting new starters, anyone mid-run
+ * finishes, and results stay readable for the record.
+ */
+export async function DELETE(req: Request): Promise<NextResponse> {
+  if (!isValidServiceToken(extractBearer(req))) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+  const id = new URL(req.url).searchParams.get("id") ?? "";
+  if (!z.string().uuid().safeParse(id).success) {
+    return NextResponse.json({ error: "invalid_id" }, { status: 400 });
+  }
+  const result = await db
+    .update(tenantAssessmentBank)
+    .set({ deletedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(tenantAssessmentBank.id, id), isNull(tenantAssessmentBank.deletedAt)))
+    .returning({ id: tenantAssessmentBank.id });
+  if (result.length === 0) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  return NextResponse.json({ ok: true });
+}
