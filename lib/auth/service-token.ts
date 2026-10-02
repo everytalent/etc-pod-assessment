@@ -12,15 +12,26 @@
  * If neither env var is set we deny everything — fail-closed.
  */
 
+import { timingSafeEqual } from "node:crypto";
+
+// Constant-time comparison so a caller cannot learn the token one byte at a
+// time from response timing.
+function tokenEquals(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
+
 export function isValidServiceToken(token: string): boolean {
   if (!token) return false;
   const single = (process.env.ETC_ASSESSMENT_SERVICE_TOKEN ?? "").trim();
-  if (single && token === single) return true;
+  if (single && tokenEquals(token, single)) return true;
   const legacyList = (process.env.ETC_PROFILE_SERVICE_TOKENS ?? "")
     .split(",")
     .map((t) => t.trim())
     .filter(Boolean);
-  return legacyList.includes(token);
+  return legacyList.some((t) => tokenEquals(token, t));
 }
 
 export function extractBearer(req: Request): string {
