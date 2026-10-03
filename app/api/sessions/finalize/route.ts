@@ -17,8 +17,9 @@
 import { createHash } from "node:crypto";
 
 import { and, eq, inArray } from "drizzle-orm";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 
+import { autoScoreResponse } from "@/lib/assessment/auto-score";
 import { finalizeResponse } from "@/lib/assessment/engine";
 import { db } from "@/lib/db/client";
 import {
@@ -100,6 +101,20 @@ async function handle(req: Request): Promise<NextResponse> {
       { status: 502 },
     );
   }
+
+  // AI scoring starts now, after the redirect is sent, so the candidate
+  // never waits on it. What does not finish inside this function's time
+  // is picked up by the every-minute background worker.
+  after(async () => {
+    try {
+      await autoScoreResponse(responseId, 18_000);
+    } catch (err) {
+      console.warn(
+        "[sessions/finalize] auto-score threw:",
+        err instanceof Error ? err.message : "unknown",
+      );
+    }
+  });
 
   // Multi-spec walker: if the just-finished response was part of a
   // multi-spec session (POST /api/internal/sessions created multiple

@@ -49,6 +49,23 @@ const MODEL_CANDIDATES = [
 let resolvedModel: string | null = null;
 
 /**
+ * Models that refuse any sampling temperature but 1. Moonshot's thinking
+ * and newer K2 releases answer 400 "invalid temperature: only 1 is
+ * allowed for this model" to the 0.2 every scoring call sent, which took
+ * Kimi out of the cross-check entirely. Learned per model on first
+ * refusal and remembered for the process.
+ */
+const fixedTemperatureModels = new Set<string>();
+
+function temperatureFor(model: string, requested: number): number {
+  return fixedTemperatureModels.has(model) ? 1 : requested;
+}
+
+function isTemperatureRefusal(status: number, body: string): boolean {
+  return status === 400 && /temperature/i.test(body);
+}
+
+/**
  * Ask Moonshot what it actually serves.
  *
  * The hard-coded list is a guess about someone else's product naming,
@@ -75,7 +92,10 @@ async function discoverModels(): Promise<string[]> {
     const usable = ids.filter((id) => !excluded.test(id));
     // Newest-looking first: higher version numbers tend to sort later,
     // and a turbo variant is cheaper for a scoring call than a flagship.
-    usable.sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+    // Thinking models go last: slower, dearer, and no better at applying
+    // a rubric than the instruct models.
+    const thinking = (id: string) => (/thinking/i.test(id) ? 1 : 0);
+    usable.sort((a, b) => thinking(a) - thinking(b) || b.localeCompare(a, undefined, { numeric: true }));
     if (usable.length > 0) {
       console.info(`[kimi] discovered models: ${usable.slice(0, 5).join(", ")}`);
     }
@@ -118,11 +138,16 @@ async function callKimiOnce(prompt: string, model: string): Promise<string> {
       // doesn't honour this we still recover via the fence-stripping
       // parser in scoring.ts.
       response_format: { type: "json_object" },
-      temperature: 0.2,
+      temperature: temperatureFor(model, 0.2),
     }),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    if (isTemperatureRefusal(res.status, text) && !fixedTemperatureModels.has(model)) {
+      fixedTemperatureModels.add(model);
+      console.info(`[kimi] "${model}" only accepts temperature 1; retrying with it`);
+      return callKimiOnce(prompt, model);
+    }
     const err = new Error(humaniseKimiError(res.status, text)) as Error & {
       status?: number;
     };
@@ -334,7 +359,7 @@ async function postKimiChat(
     },
     body: asciiSafeJsonStringify({
       model,
-      temperature: args.temperature ?? 0.2,
+      temperature: temperatureFor(model, args.temperature ?? 0.2),
       ...(args.maxTokens ? { max_tokens: args.maxTokens } : {}),
       ...(args.json === false
         ? {}
@@ -345,6 +370,11 @@ async function postKimiChat(
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
+    if (isTemperatureRefusal(res.status, body) && !fixedTemperatureModels.has(model)) {
+      fixedTemperatureModels.add(model);
+      console.info(`[kimi] "${model}" only accepts temperature 1; retrying with it`);
+      return postKimiChat(args, model);
+    }
     const err = new Error(humaniseKimiError(res.status, body)) as Error & {
       status?: number;
     };

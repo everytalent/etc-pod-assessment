@@ -32,6 +32,7 @@ import { and, asc, eq, lt } from "drizzle-orm";
 import { db } from "../../lib/db/client.js";
 import { skillboardAuthoringJobs, tenantAssessmentBank } from "../../lib/db/schema.js";
 import { processNextAuthoringJob } from "../../lib/engines/assessment/skillboards/claude-author.js";
+import { autoScorePending } from "../../lib/assessment/auto-score.js";
 import { notifyReadyWaitlists } from "../../lib/engines/assessment/waitlist.js";
 import {
   processOneTenantBankFromQueue,
@@ -215,6 +216,30 @@ export default async function handler() {
     );
   }
 
+  // ----- Step 5: AI scoring of submitted responses -----
+  //
+  // Scoring starts when the candidate submits (sessions/finalize), but a
+  // long assessment or a provider outage can leave answers unscored.
+  // Anything still without ai_pipeline_ran_at is finished here, within
+  // what is left of the budget.
+  let autoScored: { responses: number; scored: number; failed: number } = { responses: 0, scored: 0, failed: 0 };
+  try {
+    const left = SOFT_BUDGET_MS - (Date.now() - startedAt);
+    if (left > 15_000) {
+      const outcomes = await autoScorePending(Math.min(left, 10 * 60 * 1000));
+      autoScored = {
+        responses: outcomes.length,
+        scored: outcomes.reduce((n, o) => n + o.scored, 0),
+        failed: outcomes.reduce((n, o) => n + o.failed, 0),
+      };
+      if (autoScored.responses > 0) {
+        console.log(`[bg-worker] auto-score: ${autoScored.responses} response(s), ${autoScored.scored} scored, ${autoScored.failed} failed`);
+      }
+    }
+  } catch (err) {
+    console.warn("[bg-worker] auto-score sweep errored:", err instanceof Error ? err.message : "unknown");
+  }
+
   void tenantAssessmentBank; // import-keep — surface in this file for future tweaks
 
   const totalMs = Date.now() - startedAt;
@@ -230,6 +255,7 @@ export default async function handler() {
       jobs_processed: outcomes.length,
       tenant_banks_processed: tenantOutcomes.length,
       waitlist,
+      auto_scored: autoScored,
       outcomes,
       tenant_outcomes: tenantOutcomes,
     }),
