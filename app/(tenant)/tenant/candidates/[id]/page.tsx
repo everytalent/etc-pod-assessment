@@ -68,10 +68,16 @@ export default async function CandidateDetailPage({
       questionId: questions.id,
       questionText: questions.questionText,
       questionType: questions.type,
+      selectedOptions: answers.selectedOptions,
       textResponse: answers.textResponse,
+      audioPath: answers.audioPath,
       transcript: answers.transcript,
       scoreAwarded: answers.scoreAwarded,
       scoreRationale: answers.scoreRationale,
+      timeSpentSeconds: answers.timeSpentSeconds,
+      timedOut: answers.timedOut,
+      options: questions.options,
+      correctAnswer: questions.correctAnswer,
       points: questions.points,
     })
     .from(answers)
@@ -171,12 +177,35 @@ export default async function CandidateDetailPage({
     max_possible_score: row.response.maxPossibleScore,
     submitted_at: row.response.submittedAt?.toISOString() ?? null,
     time_spent_seconds: timeSpentSeconds,
+    pass: row.response.pass,
     integrity_findings: findings,
+    // The same soft signals the admin drill-in shows as chips.
+    signals: {
+      session_loads: rawMeta.session_loads ?? 0,
+      tab_switches: rawMeta.tab_blur_count ?? 0,
+      paste_events: rawMeta.paste_count ?? 0,
+      ip_changed: Boolean(
+        rawMeta.start_ip_hash &&
+          rawMeta.submit_ip_hash &&
+          rawMeta.start_ip_hash !== rawMeta.submit_ip_hash,
+      ),
+    },
     submission: submission.map((s) => ({
       answer_id: s.answerId,
       question_id: s.questionId,
       question_text: s.questionText,
       question_type: s.questionType,
+      // Option labels, never ids: the same lookup the admin view does.
+      picked: (Array.isArray(s.selectedOptions) ? (s.selectedOptions as string[]) : []).map(
+        (id) => s.options.find((o) => o.id === id)?.label ?? id,
+      ),
+      correct: s.correctAnswer.map(
+        (id) => s.options.find((o) => o.id === id)?.label ?? id,
+      ),
+      has_audio: Boolean(s.audioPath),
+      time_spent_seconds: s.timeSpentSeconds,
+      timed_out: s.timedOut,
+      max_points: s.points,
       candidate_answer_text: s.textResponse ?? s.transcript,
       ai_auto_score: s.scoreAwarded,
       final_score: s.scoreAwarded,

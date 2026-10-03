@@ -5,6 +5,14 @@ import { useRouter } from "next/navigation";
 
 import { cn } from "@/lib/utils";
 
+/**
+ * Tenant candidate detail. Laid out like the admin response drill-in
+ * (status / score / pass / time, integrity signal chips, then the path with
+ * every question showing what was picked, what was correct, points and
+ * time) so the two surfaces read the same. Tenant-only actions (reassess,
+ * score override) stay; admin-only controls are not here.
+ */
+
 type Finding = {
   text: string;
   severity: "info" | "warn" | "critical";
@@ -16,6 +24,12 @@ type SubmissionRow = {
   question_id: string;
   question_text: string;
   question_type: string;
+  picked: string[];
+  correct: string[];
+  has_audio: boolean;
+  time_spent_seconds: number;
+  timed_out: boolean;
+  max_points: number;
   candidate_answer_text: string | null;
   ai_auto_score: number | null;
   final_score: number | null;
@@ -39,21 +53,20 @@ type Initial = {
   max_possible_score: number;
   submitted_at: string | null;
   time_spent_seconds: number | null;
+  pass: boolean | null;
   integrity_findings: Finding[];
+  signals: {
+    session_loads: number;
+    tab_switches: number;
+    paste_events: number;
+    ip_changed: boolean;
+  };
   submission: SubmissionRow[];
 };
 
-function formatDuration(seconds: number | null): string {
-  if (seconds === null || seconds <= 0) return "—";
-  if (seconds < 60) return `${seconds}s`;
-  const m = Math.floor(seconds / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  return `${h}h ${m % 60}m`;
-}
-
-function formatDecision(decision: string): string {
-  return decision.replace(/_/g, " ");
+function formatMinutes(seconds: number | null): string {
+  if (seconds === null || seconds <= 0) return "-";
+  return `${Math.max(1, Math.round(seconds / 60))}m`;
 }
 
 export function CandidateDetailClient({ initial }: { initial: Initial }) {
@@ -90,56 +103,28 @@ export function CandidateDetailClient({ initial }: { initial: Initial }) {
     }
   };
 
-  const trafficLight =
-    initial.integrity_findings.some((f) => f.severity === "critical")
-      ? "red"
-      : initial.integrity_findings.some((f) => f.severity === "warn")
-        ? "amber"
-        : "green";
-
   return (
-    <div className="space-y-6">
-      <header className="space-y-2">
-        <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-muted-foreground">
-          {initial.assessment_title}
-        </p>
-        <h1 className="text-2xl font-bold">{initial.candidate_name}</h1>
-        <p className="text-xs text-muted-foreground">{initial.candidate_email}</p>
-      </header>
-
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Decision" value={formatDecision(initial.decision)} accent />
-        <Stat
-          label="Score"
-          value={
-            initial.total_score !== null
-              ? `${initial.total_score} / ${initial.max_possible_score}`
-              : "—"
-          }
-        />
-        <Stat label="Time" value={formatDuration(initial.time_spent_seconds)} />
-        <Stat label="Status" value={initial.status} />
-      </section>
-
-      <section className="flex items-center justify-between rounded-2xl border border-border bg-card p-4 text-xs">
+    <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="font-semibold">Need a second look?</p>
-          <p className="text-muted-foreground">
-            Send the candidate a fresh assessment, excluding the questions
-            they&apos;ve already seen. 1 reassessment per candidate.
+          <p className="text-[0.68rem] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            Response · {initial.assessment_title}
           </p>
+          <h1 className="mt-1 text-xl font-bold">{initial.candidate_name}</h1>
+          <p className="text-xs text-muted-foreground">{initial.candidate_email}</p>
         </div>
         <button
           type="button"
           onClick={reassess}
           disabled={reassessing}
-          className="inline-flex h-9 items-center rounded-lg border border-foreground px-3 text-xs font-semibold disabled:opacity-60"
+          title="Send the candidate a fresh assessment, excluding the questions they have already seen. One reassessment per candidate."
+          className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-semibold hover:border-etc-marigold disabled:opacity-60"
         >
           {reassessing ? "Sending..." : "Reassess"}
         </button>
-      </section>
+      </div>
       {reassessError && (
-        <p className="rounded-lg border border-destructive bg-destructive/10 p-2 text-xs text-destructive">
+        <p className="mt-3 rounded-lg border border-destructive bg-destructive/10 p-2 text-xs text-destructive">
           {reassessError === "reassessment_cap_reached"
             ? "This candidate has already used their reassessment for this assessment."
             : reassessError === "insufficient_slots"
@@ -148,154 +133,265 @@ export function CandidateDetailClient({ initial }: { initial: Initial }) {
         </p>
       )}
 
-      <section
-        className={cn(
-          "rounded-2xl border p-4",
-          trafficLight === "red"
-            ? "border-destructive bg-destructive/5"
-            : trafficLight === "amber"
-              ? "border-amber-400 bg-amber-50"
-              : "border-green-300 bg-green-50",
-        )}
-      >
-        <div className="flex items-center gap-2">
-          <span
-            aria-hidden
-            className={cn(
-              "h-2 w-2 rounded-full",
-              trafficLight === "red"
-                ? "bg-destructive"
-                : trafficLight === "amber"
-                  ? "bg-amber-500"
-                  : "bg-green-500",
-            )}
+      <dl className="mt-5 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
+        <Stat label="Status" value={initial.status.replace(/_/g, " ")} />
+        <Stat
+          label="Score"
+          value={
+            initial.total_score !== null
+              ? `${initial.total_score} / ${initial.max_possible_score}`
+              : "-"
+          }
+        />
+        <Stat
+          label="Pass"
+          value={initial.pass === true ? "Yes" : initial.pass === false ? "No" : "-"}
+        />
+        <Stat label="Time" value={formatMinutes(initial.time_spent_seconds)} />
+      </dl>
+
+      <IntegritySignals signals={initial.signals} findings={initial.integrity_findings} />
+
+      <h3 className="mt-6 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        Path ({initial.submission.length} answer{initial.submission.length === 1 ? "" : "s"})
+      </h3>
+      <ol className="mt-3 flex flex-col gap-3">
+        {initial.submission.map((s, idx) => (
+          <AnswerCard
+            key={s.question_id}
+            index={idx}
+            answer={s}
+            overrideOpen={openOverrideFor === s.question_id}
+            onOpenOverride={() => setOpenOverrideFor(s.question_id)}
+            onCloseOverride={() => setOpenOverrideFor(null)}
+            onOverridden={() => {
+              setOpenOverrideFor(null);
+              router.refresh();
+            }}
+            responseId={initial.response_id}
           />
-          <h2 className="text-[0.65rem] font-semibold uppercase tracking-wider text-foreground">
-            Integrity report
-          </h2>
-        </div>
-        <ul className="mt-3 space-y-1.5 text-xs leading-relaxed text-foreground">
-          {initial.integrity_findings.map((f, i) => (
-            <li key={i} className="flex gap-2">
-              <span aria-hidden className="mt-1 shrink-0 text-muted-foreground">
-                •
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+/* ---------- Stat card (same as the admin drill-in) ---------- */
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-background p-3">
+      <dt className="text-[0.65rem] uppercase tracking-wider text-muted-foreground">
+        {label}
+      </dt>
+      <dd className="mt-1 text-sm font-medium capitalize text-foreground">{value}</dd>
+    </div>
+  );
+}
+
+/* ---------- Integrity signals (soft, never auto-blocking) ---------- */
+
+function IntegritySignals({
+  signals,
+  findings,
+}: {
+  signals: Initial["signals"];
+  findings: Finding[];
+}) {
+  const items: { label: string; value: string; tone: "muted" | "warn" }[] = [];
+  if (signals.session_loads > 1) {
+    items.push({
+      label: "Session loads",
+      value: String(signals.session_loads),
+      tone: signals.session_loads >= 4 ? "warn" : "muted",
+    });
+  }
+  if (signals.tab_switches > 0) {
+    items.push({
+      label: "Tab switches",
+      value: String(signals.tab_switches),
+      tone: signals.tab_switches >= 3 ? "warn" : "muted",
+    });
+  }
+  if (signals.paste_events > 0) {
+    items.push({ label: "Paste events", value: String(signals.paste_events), tone: "warn" });
+  }
+  if (signals.ip_changed) {
+    items.push({ label: "IP changed", value: "start ≠ submit", tone: "warn" });
+  }
+  const notable = findings.filter((f) => f.severity !== "info");
+
+  if (items.length === 0 && notable.length === 0) {
+    return (
+      <div className="mt-3 rounded-xl border border-dashed border-border bg-background/60 p-3">
+        <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-muted-foreground">
+          Integrity signals
+        </p>
+        <p className="mt-2 text-[0.7rem] text-muted-foreground">
+          Nothing unusual was recorded during this attempt.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-xl border border-dashed border-border bg-background/60 p-3">
+      <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-muted-foreground">
+        Integrity signals
+      </p>
+      {items.length > 0 && (
+        <ul className="mt-2 flex flex-wrap gap-2">
+          {items.map((it) => (
+            <li key={it.label}>
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[0.7rem]",
+                  it.tone === "warn"
+                    ? "bg-amber-100 text-amber-900"
+                    : "bg-muted text-muted-foreground",
+                )}
+              >
+                <span className="font-medium">{it.label}:</span> {it.value}
               </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {notable.length > 0 && (
+        <ul className="mt-2 space-y-1 text-[0.7rem] leading-relaxed text-foreground">
+          {notable.map((f, i) => (
+            <li key={i} className="flex gap-2">
+              <span
+                aria-hidden
+                className={cn(
+                  "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full",
+                  f.severity === "critical" ? "bg-destructive" : "bg-amber-500",
+                )}
+              />
               <span>{f.text}</span>
             </li>
           ))}
         </ul>
-      </section>
-
-      <section>
-        <h2 className="text-[0.65rem] font-semibold uppercase tracking-wider text-muted-foreground">
-          Per-question submission
-        </h2>
-        <div className="mt-3 space-y-3">
-          {initial.submission.map((s, idx) => (
-            <article
-              key={s.question_id}
-              className="rounded-2xl border border-border bg-card p-5 text-xs shadow-sm"
-            >
-              <div className="flex items-baseline gap-2">
-                <span className="text-[0.65rem] font-semibold text-muted-foreground">
-                  Q{idx + 1}
-                </span>
-                <p className="font-medium leading-relaxed text-foreground">
-                  {s.question_text}
-                </p>
-              </div>
-              <p className="mt-3 whitespace-pre-wrap rounded-lg bg-muted/40 p-3 text-foreground">
-                {s.candidate_answer_text ?? (
-                  <span className="italic text-muted-foreground">
-                    (no answer captured)
-                  </span>
-                )}
-              </p>
-              <dl className="mt-4 grid grid-cols-3 gap-2 text-[0.65rem]">
-                <ScoreCell label="Algorithm" value={s.ai_auto_score} />
-                <ScoreCell label="Mark" value={s.points_awarded} />
-                <ScoreCell label="Final" value={s.final_score} />
-              </dl>
-              {s.ai_rationale && (
-                <p className="mt-3 rounded-lg border border-border/60 bg-muted/20 p-2 text-[0.65rem] italic text-muted-foreground">
-                  {s.ai_rationale}
-                </p>
-              )}
-              {s.override && (
-                <p className="mt-3 rounded-lg border border-etc-marigold bg-etc-marigold/10 p-2 text-[0.65rem] text-etc-black">
-                  <span className="font-semibold">Score overridden</span>{" "}
-                  ({s.override.reason_category}): {s.override.reason_text}
-                </p>
-              )}
-              <div className="mt-4 flex justify-end border-t border-border/40 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setOpenOverrideFor(s.question_id)}
-                  className="text-[0.7rem] font-semibold text-foreground underline-offset-4 hover:underline"
-                >
-                  Override score
-                </button>
-              </div>
-              {openOverrideFor === s.question_id && (
-                <OverrideForm
-                  responseId={initial.response_id}
-                  questionId={s.question_id}
-                  answerId={s.answer_id}
-                  onClose={() => setOpenOverrideFor(null)}
-                  onDone={() => {
-                    setOpenOverrideFor(null);
-                    router.refresh();
-                  }}
-                />
-              )}
-            </article>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: string;
-  accent?: boolean;
-}) {
-  return (
-    <div
-      className={cn(
-        "rounded-2xl border p-4",
-        accent ? "border-foreground bg-foreground/5" : "border-border bg-card",
       )}
-    >
-      <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-muted-foreground">
-        {label}
+      <p className="mt-2 text-[0.65rem] text-muted-foreground">
+        Soft signals only, never auto-blocking. Poor connectivity can drive
+        loads and tab switches up on legitimate candidates.
       </p>
-      <p className="mt-1 text-lg font-bold capitalize">{value}</p>
     </div>
   );
 }
 
-function ScoreCell({
-  label,
-  value,
+/* ---------- Per-answer card ---------- */
+
+function summariseSelection(a: SubmissionRow): string {
+  if (a.question_type === "open") {
+    if (a.has_audio) return "Voice response";
+    if (a.candidate_answer_text) return "Text response";
+    return "(no response)";
+  }
+  if (a.picked.length === 0) return "(no answer)";
+  return `Picked: ${a.picked.join(", ")}`;
+}
+
+function AnswerCard({
+  index,
+  answer,
+  overrideOpen,
+  onOpenOverride,
+  onCloseOverride,
+  onOverridden,
+  responseId,
 }: {
-  label: string;
-  value: number | null;
+  index: number;
+  answer: SubmissionRow;
+  overrideOpen: boolean;
+  onOpenOverride: () => void;
+  onCloseOverride: () => void;
+  onOverridden: () => void;
+  responseId: string;
 }) {
+  const isOpen = answer.question_type === "open";
+  const pts = answer.points_awarded ?? 0;
+  const pickedRight =
+    !isOpen &&
+    answer.correct.length > 0 &&
+    answer.picked.length === answer.correct.length &&
+    answer.picked.every((p) => answer.correct.includes(p));
+
   return (
-    <div className="rounded-lg bg-muted/30 p-2">
-      <p className="text-muted-foreground">{label}</p>
-      <p className="mt-1 font-semibold text-foreground">
-        {value !== null ? value : "—"}
-      </p>
-    </div>
+    <li className="rounded-2xl border border-border bg-background p-4">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 rounded-md bg-muted px-1.5 py-0.5 font-mono text-[0.65rem] uppercase text-muted-foreground">
+          #{index + 1}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium">{answer.question_text}</p>
+          <p className="mt-1 text-[0.7rem] text-muted-foreground">
+            <span className={cn(pickedRight && "text-green-700")}>
+              {summariseSelection(answer)}
+            </span>
+            {" · "}
+            {pts > 0 ? "+" : ""}
+            {pts} / {answer.max_points} pts · {answer.time_spent_seconds}s
+            {answer.timed_out && " · TIMED OUT"}
+          </p>
+          {answer.correct.length > 0 && (
+            <p className="mt-1 text-[0.7rem] text-muted-foreground">
+              Correct: {answer.correct.join(", ")}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {isOpen && (
+        <div className="mt-3 space-y-2">
+          <p className="whitespace-pre-wrap rounded-lg bg-muted/40 p-3 text-xs text-foreground">
+            {answer.candidate_answer_text ?? (
+              <span className="italic text-muted-foreground">
+                {answer.has_audio
+                  ? "Voice response; transcript not yet available."
+                  : "(no response captured)"}
+              </span>
+            )}
+          </p>
+          {answer.ai_rationale && (
+            <p className="rounded-lg border border-border/60 bg-muted/20 p-2 text-[0.65rem] italic text-muted-foreground">
+              {answer.ai_rationale}
+            </p>
+          )}
+        </div>
+      )}
+
+      {answer.override && (
+        <p className="mt-3 rounded-lg border border-etc-marigold bg-etc-marigold/10 p-2 text-[0.65rem] text-etc-black">
+          <span className="font-semibold">Score overridden</span>{" "}
+          ({answer.override.reason_category.replace(/_/g, " ")}): {answer.override.reason_text}
+        </p>
+      )}
+
+      <div className="mt-3 flex justify-end">
+        <button
+          type="button"
+          onClick={overrideOpen ? onCloseOverride : onOpenOverride}
+          className="text-[0.7rem] font-semibold text-foreground underline-offset-4 hover:underline"
+        >
+          {overrideOpen ? "Cancel override" : "Override score"}
+        </button>
+      </div>
+      {overrideOpen && (
+        <OverrideForm
+          responseId={responseId}
+          questionId={answer.question_id}
+          answerId={answer.answer_id}
+          onClose={onCloseOverride}
+          onDone={onOverridden}
+        />
+      )}
+    </li>
   );
 }
+
+/* ---------- Override form (tenant action) ---------- */
 
 function OverrideForm({
   responseId,
@@ -354,9 +450,9 @@ function OverrideForm({
   return (
     <div className="mt-3 space-y-3 rounded-lg border border-border bg-muted/20 p-3 text-[0.7rem]">
       <p className="text-[0.65rem] text-muted-foreground">
-        Your override helps the algorithm learn. Both the new score and your
-        reason will be used to improve scoring quality across all future
-        assessments — not just this candidate&apos;s.
+        Your override helps the scoring learn. Both the new score and your
+        reason are used to improve scoring across all future assessments, not
+        just this candidate&apos;s.
       </p>
       <label className="block">
         <span className="font-medium">New score</span>
@@ -374,9 +470,9 @@ function OverrideForm({
           onChange={(e) => setCategory(e.target.value)}
           className="mt-1 h-9 w-full rounded-lg border border-input bg-background px-2"
         >
-          <option value="too_harsh">Algorithm scored too harshly</option>
-          <option value="too_lenient">Algorithm scored too leniently</option>
-          <option value="missed_context">Algorithm missed context</option>
+          <option value="too_harsh">Scored too harshly</option>
+          <option value="too_lenient">Scored too leniently</option>
+          <option value="missed_context">Missed context</option>
           <option value="cultural_nuance">Cultural / regional nuance</option>
           <option value="translation_issue">Language / translation issue</option>
           <option value="other">Other</option>
@@ -389,7 +485,7 @@ function OverrideForm({
           onChange={(e) => setReasonText(e.target.value)}
           rows={3}
           className="mt-1 w-full rounded-lg border border-input bg-background p-2"
-          placeholder="What did the algorithm miss? Be specific."
+          placeholder="What was missed? Be specific."
         />
       </label>
       {error && (
