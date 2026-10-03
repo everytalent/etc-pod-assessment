@@ -20,7 +20,7 @@ import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { db as dbAdmin } from "@/lib/db/client";
-import { tenantUsers, tenants } from "@/lib/db/schema";
+import { adminUsers, tenantUsers, tenants } from "@/lib/db/schema";
 
 export const dynamic = "force-dynamic";
 
@@ -70,6 +70,32 @@ export async function GET(request: Request) {
   if (!payload) return back(url, "handoff_invalid");
 
   const email = payload.email.trim().toLowerCase();
+
+  // ETC staff asking for the admin area: the platform vouches for them, so
+  // they are put on the admin allowlist and sent through the admin callback.
+  const wantsAdmin = next.startsWith("/admin");
+  if (wantsAdmin && !payload.staff) return back(url, "handoff_not_staff");
+  if (wantsAdmin) {
+    const [existingAdmin] = await dbAdmin.select({ id: adminUsers.id }).from(adminUsers).where(eq(adminUsers.email, email)).limit(1);
+    if (!existingAdmin) await dbAdmin.insert(adminUsers).values({ email, role: "admin" });
+    const supaUrlA = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceKeyA = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supaUrlA || !serviceKeyA) return back(url, "handoff_not_configured");
+    const adminClient = createClient(supaUrlA, serviceKeyA, { auth: { persistSession: false, autoRefreshToken: false } });
+    let linkA = await adminClient.auth.admin.generateLink({ type: "magiclink", email });
+    if (linkA.error && /not found|does not exist/i.test(linkA.error.message)) {
+      const created = await adminClient.auth.admin.createUser({ email, email_confirm: true });
+      if (created.error) return back(url, "handoff_user_failed");
+      linkA = await adminClient.auth.admin.generateLink({ type: "magiclink", email });
+    }
+    const hashA = linkA.data?.properties?.hashed_token;
+    if (linkA.error || !hashA) return back(url, "handoff_link_failed");
+    const cb = new URL("/admin/auth-callback", url);
+    cb.searchParams.set("token_hash", hashA);
+    cb.searchParams.set("type", "magiclink");
+    cb.searchParams.set("next", next);
+    return NextResponse.redirect(cb);
+  }
 
   // The tenant, by name, created if this company has never used assessments.
   const all = await dbAdmin.select({ id: tenants.id, name: tenants.name }).from(tenants);
