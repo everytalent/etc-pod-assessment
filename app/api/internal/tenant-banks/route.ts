@@ -97,15 +97,24 @@ async function resolveTenant(
   return { id: row.id, created: true };
 }
 
-/** tenant_users.email is globally unique, so an existing row wins outright. */
+/**
+ * tenant_users.email is globally unique. A row under another tenant is moved
+ * to this one: the platform is asking on behalf of this company, and leaving
+ * the person elsewhere made the bank's own results 404 for them.
+ */
 async function resolveTenantUser(tenantId: string, email: string): Promise<string> {
   const normalised = email.trim().toLowerCase();
   const [existing] = await db
-    .select({ id: tenantUsers.id })
+    .select({ id: tenantUsers.id, tenantId: tenantUsers.tenantId })
     .from(tenantUsers)
     .where(eq(tenantUsers.email, normalised))
     .limit(1);
-  if (existing) return existing.id;
+  if (existing) {
+    if (existing.tenantId !== tenantId) {
+      await db.update(tenantUsers).set({ tenantId, updatedAt: new Date() }).where(eq(tenantUsers.id, existing.id));
+    }
+    return existing.id;
+  }
 
   const [row] = await db
     .insert(tenantUsers)

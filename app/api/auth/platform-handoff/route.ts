@@ -85,10 +85,14 @@ export async function GET(request: Request) {
     createdTenant = true;
   }
 
-  // The person on the allowlist. An existing row wins (email is unique here).
-  const [existingUser] = await dbAdmin.select({ id: tenantUsers.id }).from(tenantUsers).where(eq(tenantUsers.email, email)).limit(1);
+  // The person on the allowlist. Email is unique here, so a row that points
+  // at another tenant is moved: the platform knows which company this person
+  // works in, and a stale row is exactly what made their own candidates 404.
+  const [existingUser] = await dbAdmin.select({ id: tenantUsers.id, tenantId: tenantUsers.tenantId }).from(tenantUsers).where(eq(tenantUsers.email, email)).limit(1);
   if (!existingUser) {
     await dbAdmin.insert(tenantUsers).values({ tenantId: tenant.id, email, role: createdTenant ? "owner" : "admin" });
+  } else if (existingUser.tenantId !== tenant.id) {
+    await dbAdmin.update(tenantUsers).set({ tenantId: tenant.id, updatedAt: new Date() }).where(eq(tenantUsers.id, existingUser.id));
   }
 
   // A Supabase user, and a one-time token to sign them in with.
