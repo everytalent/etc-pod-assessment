@@ -878,6 +878,8 @@ function humaniseExtractError(code: unknown, label: string): string {
       return "We couldn't read that link as a job posting. Paste the text instead.";
     case "extraction_failed":
       return "We couldn't read that file. Try a different format or paste the text.";
+    case "jd_unpublished":
+      return "That JD is still a draft in JD Studio, so it has no public text yet. Publish it in JD Studio and fetch again, or paste its text here.";
     case "extracted_text_too_short":
       return "We extracted very little text from that source. Paste the role manually for a better assessment.";
     case "fetch_failed":

@@ -289,19 +289,23 @@ type JdShareTarget = { jdId: string; origin: string };
  * public API directly. Returns null when the URL isn't a JD Studio share
  * link.
  */
-const JD_STUDIO_HOSTS = new Set(["jd.energytalentco.com", "jd.everytalentco.com"]);
+const JD_STUDIO_HOSTS = new Set(["jd.energytalentco.com", "jd.everytalentco.com", "app.everytalentco.com"]);
+/** The JD API lives on the platform; every JD Studio host proxies it, but the platform is canonical. */
+const JD_API_BASE = "https://app.everytalentco.com/api";
 
 function matchJdStudioShareUrl(u: URL): JdShareTarget | null {
   if (!JD_STUDIO_HOSTS.has(u.hostname)) return null;
-  // SharePage routes on the URL fragment: #/share/<id> or #share/<id>.
+  // JD Studio routes on the URL fragment. A share link is #/share/<id>; a
+  // link copied from the editor is #/library/<id>, and the apply page is
+  // #/apply/<id>. All three name the same JD, so all three resolve.
   const hash = u.hash.replace(/^#\/?/, "");
-  const m = hash.match(/^share\/([0-9a-fA-F-]{32,40})/);
+  const m = hash.match(/^(?:share|library|apply|jd)\/([0-9a-fA-F-]{32,40})/);
   if (!m) return null;
   return { jdId: m[1], origin: u.origin };
 }
 
 async function handleJdStudioShare(target: JdShareTarget): Promise<NextResponse> {
-  const apiUrl = `${target.origin}/api/client-jd/public/${encodeURIComponent(target.jdId)}`;
+  const apiUrl = `${JD_API_BASE}/client-jd/public/${encodeURIComponent(target.jdId)}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), URL_FETCH_TIMEOUT_MS);
   let res: Response;
@@ -321,6 +325,11 @@ async function handleJdStudioShare(target: JdShareTarget): Promise<NextResponse>
     );
   }
   clearTimeout(timer);
+  if (res.status === 404) {
+    // The JD exists only as a draft (or was unpublished): JD Studio serves
+    // published JDs publicly and nothing else. Say so, rather than "little text".
+    return NextResponse.json({ error: "jd_unpublished" }, { status: 422 });
+  }
   if (!res.ok) {
     return NextResponse.json(
       { error: "fetch_failed", status: res.status },
