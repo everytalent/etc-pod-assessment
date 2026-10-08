@@ -19,6 +19,7 @@
 import { eq, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
+import { isUnlimitedTenant } from "./unlimited";
 import {
   tenantBillingBalance,
   tenantBillingLedger,
@@ -174,10 +175,17 @@ export async function applyBalanceMutation(args: {
 
 /* ---------- Convenience wrappers ---------- */
 
-export function consumeGenerationCredit(args: {
+/** The balance row an unlimited tenant shows; created at zero if missing, never debited. */
+async function unlimitedResult(tenantId: string): Promise<MutateResult> {
+  const balance = (await getBalance(tenantId)) ?? (await provisionTrialBalance({ tenantId, generationCredits: 0, candidateSlots: 0 }));
+  return { ok: true, balance };
+}
+
+export async function consumeGenerationCredit(args: {
   tenantId: string;
   relatedAssessmentBankId: string;
 }): Promise<MutateResult> {
+  if (await isUnlimitedTenant(args.tenantId)) return unlimitedResult(args.tenantId);
   return applyBalanceMutation({
     tenantId: args.tenantId,
     guardNonNegative: true,
@@ -208,10 +216,11 @@ export function refundGenerationCredit(args: {
   });
 }
 
-export function consumeCandidateSlot(args: {
+export async function consumeCandidateSlot(args: {
   tenantId: string;
   relatedCandidateAssessmentId: string;
 }): Promise<MutateResult> {
+  if (await isUnlimitedTenant(args.tenantId)) return unlimitedResult(args.tenantId);
   return applyBalanceMutation({
     tenantId: args.tenantId,
     guardNonNegative: true,
@@ -233,6 +242,8 @@ export function consumeCandidateSlot(args: {
 export async function canSubmitForGeneration(
   tenantId: string,
 ): Promise<{ ok: true } | { ok: false; reason: "needs_credit" | "low_slots"; current: TenantBillingBalance | null }> {
+  // One credit covers everything: an unlimited workspace is never gated.
+  if (await isUnlimitedTenant(tenantId)) return { ok: true };
   const balance = await getBalance(tenantId);
   if (!balance) return { ok: false, reason: "needs_credit", current: null };
   if (balance.generationCredits < 1) {
