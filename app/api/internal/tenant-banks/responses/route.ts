@@ -1,5 +1,6 @@
 /**
  * GET /api/internal/tenant-banks/responses?bank_id=<uuid>
+ * DELETE ...?bank_id=<uuid>&response_id=<uuid> — remove one submission.
  *
  * Every candidate who has taken (or started) the assessment for one role,
  * with their result.
@@ -26,6 +27,7 @@ import { z } from "zod";
 import { extractBearer, isValidServiceToken } from "@/lib/auth/service-token";
 import { db } from "@/lib/db/client";
 import { assessments, responses, tenantAssessmentBank } from "@/lib/db/schema";
+import { deleteTenantResponse } from "@/lib/tenant/delete-response";
 
 export const dynamic = "force-dynamic";
 
@@ -131,4 +133,26 @@ export async function GET(req: Request): Promise<NextResponse> {
       };
     }),
   });
+}
+
+/**
+ * DELETE /api/internal/tenant-banks/responses?bank_id=<uuid>&response_id=<uuid>
+ *
+ * Remove one submission on the platform's behalf, when a company clears it
+ * from its results list there. Scoped to the bank, so a response id from
+ * another assessment is reported as not found.
+ */
+export async function DELETE(req: Request): Promise<NextResponse> {
+  if (!isValidServiceToken(extractBearer(req))) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+  const params = new URL(req.url).searchParams;
+  const bankId = params.get("bank_id") ?? "";
+  const responseId = params.get("response_id") ?? "";
+  if (!z.string().uuid().safeParse(bankId).success || !z.string().uuid().safeParse(responseId).success) {
+    return NextResponse.json({ error: "invalid_id" }, { status: 400 });
+  }
+  const result = await deleteTenantResponse({ responseId, bankId });
+  if (result === "not_found") return NextResponse.json({ error: "not_found" }, { status: 404 });
+  return NextResponse.json({ ok: true });
 }

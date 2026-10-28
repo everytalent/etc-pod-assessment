@@ -5,6 +5,8 @@ import { useMemo, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
+import { DeleteResponseButton } from "./DeleteResponseButton";
+
 export type CandidateRow = {
   responseId: string;
   candidateName: string;
@@ -261,12 +263,18 @@ export function AssessmentCandidatesTable({
                     <IntegrityDot flagged={r.hasIntegrityIssue} />
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <Link
-                      href={`/tenant/candidates/${r.responseId}`}
-                      className="text-foreground underline-offset-4 hover:underline"
-                    >
-                      View
-                    </Link>
+                    <span className="inline-flex items-start gap-3">
+                      <Link
+                        href={`/tenant/candidates/${r.responseId}`}
+                        className="text-foreground underline-offset-4 hover:underline"
+                      >
+                        View
+                      </Link>
+                      <DeleteResponseButton
+                        responseId={r.responseId}
+                        candidateName={r.candidateName}
+                      />
+                    </span>
                   </td>
                 </tr>
               ))}

@@ -2,6 +2,7 @@
  * POST /api/internal/tenant-banks — create a tenant assessment bank from a JD,
  * server to server.
  * GET  /api/internal/tenant-banks?id=<uuid> — poll one until it is ready.
+ * PATCH /api/internal/tenant-banks?id=<uuid> — move its closing date.
  *
  * Cross-engine endpoint. JD Studio (matching-engine on Railway) calls this when
  * a company turns on applications for a published role: the JD it already wrote
@@ -299,4 +300,68 @@ export async function DELETE(req: Request): Promise<NextResponse> {
     .returning({ id: tenantAssessmentBank.id });
   if (result.length === 0) return NextResponse.json({ error: "not_found" }, { status: 404 });
   return NextResponse.json({ ok: true });
+}
+
+const MAX_OPEN_DAYS = 365;
+
+const patchSchema = z.object({
+  link_expires_at: z.string().datetime({ offset: true }),
+});
+
+/**
+ * PATCH /api/internal/tenant-banks?id=<uuid>
+ *
+ * Move a bank's closing date. The builder opens every link for 30 days, which
+ * is shorter than plenty of roles stay advertised, and an expired link turns
+ * applicants away with nothing. The platform calls this when a company picks
+ * a closing date, and to keep a live role's link open while it is still
+ * taking applications.
+ *
+ * Only a ready bank has a link to move: the builder stamps the expiry when it
+ * finishes, so a date set earlier would be overwritten.
+ */
+export async function PATCH(req: Request): Promise<NextResponse> {
+  if (!isValidServiceToken(extractBearer(req))) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+  const id = new URL(req.url).searchParams.get("id") ?? "";
+  if (!z.string().uuid().safeParse(id).success) {
+    return NextResponse.json({ error: "invalid_id" }, { status: 400 });
+  }
+  let input;
+  try {
+    input = patchSchema.parse(await req.json());
+  } catch {
+    return NextResponse.json({ error: "invalid_input" }, { status: 400 });
+  }
+  const expires = new Date(input.link_expires_at);
+  const now = Date.now();
+  if (expires.getTime() <= now) {
+    return NextResponse.json({ error: "date_in_past" }, { status: 400 });
+  }
+  if (expires.getTime() > now + MAX_OPEN_DAYS * 86_400_000) {
+    return NextResponse.json({ error: "date_too_far", max_days: MAX_OPEN_DAYS }, { status: 400 });
+  }
+
+  const [row] = await db
+    .select({ status: tenantAssessmentBank.status, token: tenantAssessmentBank.assessmentLinkToken })
+    .from(tenantAssessmentBank)
+    .where(and(eq(tenantAssessmentBank.id, id), isNull(tenantAssessmentBank.deletedAt)))
+    .limit(1);
+  if (!row) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  if (row.status !== "ready" || !row.token) {
+    return NextResponse.json({ error: "not_ready", status: row.status }, { status: 409 });
+  }
+
+  await db
+    .update(tenantAssessmentBank)
+    .set({ linkExpiresAt: expires, updatedAt: new Date() })
+    .where(eq(tenantAssessmentBank.id, id));
+
+  return NextResponse.json({
+    id,
+    status: row.status,
+    candidate_url: takeUrl(row.token),
+    link_expires_at: expires.toISOString(),
+  });
 }

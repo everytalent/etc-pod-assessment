@@ -27,6 +27,7 @@ import {
 } from "@/lib/tenant/integrity-findings";
 import { serialiseForTenant } from "@/lib/tenant/serialiser";
 
+import { DeleteResponseButton } from "@/components/tenant/DeleteResponseButton";
 import { CandidateDetailClient } from "./CandidateDetailClient";
 
 export const dynamic = "force-dynamic";
@@ -222,5 +223,16 @@ export default async function CandidateDetailPage({
     })),
   });
 
-  return <CandidateDetailClient initial={serialised} />;
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-end text-xs">
+        <DeleteResponseButton
+          responseId={row.response.id}
+          candidateName={row.response.candidateName}
+          redirectTo={`/tenant/assessments/${row.bankId}`}
+        />
+      </div>
+      <CandidateDetailClient initial={serialised} />
+    </div>
+  );
 }
