@@ -198,10 +198,18 @@ async function loadSessionContext(responseId: string): Promise<SessionContext> {
     .limit(1);
   if (!response) throw new Error(`response ${responseId} not found`);
 
+  // Practice rows sit on the same assessment as the real bank but are
+  // served from the sample page only. Left in this pool, a fixed-mode
+  // assessment would hand them out as scored questions.
   const allQuestions = await db
     .select()
     .from(questions)
-    .where(eq(questions.assessmentId, response.assessmentId));
+    .where(
+      and(
+        eq(questions.assessmentId, response.assessmentId),
+        eq(questions.sample, false),
+      ),
+    );
 
   const responseAnswers = await db
     .select()
