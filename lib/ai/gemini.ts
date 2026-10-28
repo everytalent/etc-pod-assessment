@@ -28,9 +28,9 @@ import { asciiSafeJsonStringify } from "@/lib/tenant/sanitise";
  * out through env without a deploy.
  */
 const TRANSCRIBE_CANDIDATES = [
+  "gemini-3.8-flash",
   "gemini-3.5-flash",
   "gemini-flash-latest",
-  "gemini-2.5-flash",
 ] as const;
 
 const SCORING_CANDIDATES = [
