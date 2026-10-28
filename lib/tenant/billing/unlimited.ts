@@ -7,17 +7,33 @@
  * platform's entitlement, matched by tenant name (the name is what the
  * hand-off and the internal bank builder use to find the tenant here), and
  * Every Talent Co itself is always unlimited even if the platform cannot
- * be reached.
+ * be reached, and so is any workspace an ETC staff address owns: staff
+ * are unlimited on every engine, not only in JD Studio.
  */
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
-import { tenants } from "@/lib/db/schema";
+import { tenants, tenantUsers } from "@/lib/db/schema";
 
 const PLATFORM_API = (process.env.PLATFORM_API_URL ?? "https://app.everytalentco.com/api").replace(/\/+$/, "");
 const CACHE_MS = 10 * 60 * 1000;
 const cache = new Map<string, { at: number; unlimited: boolean }>();
+
+const ETC_STAFF_DOMAINS = ["energytalentco.com", "everytalentco.com"];
+
+function isEtcStaffEmail(email: string): boolean {
+  const e = email.trim().toLowerCase();
+  return ETC_STAFF_DOMAINS.some((d) => e.endsWith(`@${d}`));
+}
+
+async function ownedByStaff(tenantId: string): Promise<boolean> {
+  const owners = await db
+    .select({ email: tenantUsers.email })
+    .from(tenantUsers)
+    .where(and(eq(tenantUsers.tenantId, tenantId), eq(tenantUsers.role, "owner")));
+  return owners.some((o: { email: string }) => isEtcStaffEmail(o.email));
+}
 
 function alwaysUnlimitedNames(): string[] {
   return (process.env.UNLIMITED_TENANT_NAMES ?? "Every Talent Co,Every Talent Company,Energy Talent Co")
@@ -33,7 +49,7 @@ export async function isUnlimitedTenant(tenantId: string): Promise<boolean> {
   try {
     const [row] = await db.select({ name: tenants.name }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
     const name = (row?.name ?? "").trim();
-    if (name && alwaysUnlimitedNames().includes(name.toLowerCase())) {
+    if ((name && alwaysUnlimitedNames().includes(name.toLowerCase())) || (await ownedByStaff(tenantId))) {
       unlimited = true;
     } else if (name) {
       unlimited = await platformSaysUnlimited(name);
